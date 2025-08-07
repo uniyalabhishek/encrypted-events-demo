@@ -12,9 +12,9 @@ In Ethereum every log is public. With Sapphire you can **encrypt the *data*
 while keeping the *event* indexable**. This tutorial walks through the minimal
 pattern implemented in [`encrypted-events-demo`](https://github.com/oasisprotocol/encrypted-events-demo).
 
-\:::info Completion time
+:::info Completion time
 10 minutes
-\:::
+:::
 
 ## 1  Why encrypt events ?
 
@@ -27,7 +27,7 @@ private data.
 
 ```bash title="Prerequisites"
 # Node 18 +, Docker (for Localnet), Git
-```
+````
 
 \### Clone & Install
 
@@ -45,51 +45,86 @@ docker run -it -p8544-8548:8544-8548 ghcr.io/oasisprotocol/sapphire-localnet
 
 ## 3  Run the demo
 
-- Copy `.env.example` → `.env` and paste a private key from the locally running localnet.
+* Copy `.env.example` → `.env` and paste a private key from the locally running localnet.
 
 ```bash
 npx hardhat deploy  --network sapphire_localnet
-npx hardhat emit    --network sapphire_localnet --contract <ADDR> --message "secret 🚀"
-npx hardhat decrypt --network sapphire_localnet --tx <TX_HASH> --key <PRINTED_KEY>
-```
+npx hardhat emit    --network sapphire_localnet \
+  --contract <ADDR> --message "secret 🚀"
 
-*The last command prints `secret 🚀`.*
+# Decrypt a past tx
+npx hardhat decrypt --network sapphire_localnet \
+  --tx <TX_HASH> --key <PRINTED_KEY>
+
+# 🔊  Live: listen & decrypt as events arrive
+npx hardhat listen  --network sapphire_localnet \
+  --contract <ADDR> --key <PRINTED_KEY>
+```
 
 ## 4  Deep dive
 
 | Piece                 | Code                                                                  |
 | --------------------- | --------------------------------------------------------------------- |
-| **Nonce**             | `bytes32 nonce = bytes32(Sapphire.randomBytes(32,""));`               |
+| **Nonce** \*          | `bytes32 nonce = bytes32(Sapphire.randomBytes(32,""));`               |
 | **Encrypt**           | `bytes memory c = Sapphire.encrypt(key, nonce, abi.encode(msg), "");` |
 | **Emit**              | `emit Encrypted(nonce, c);`                                           |
 | **Decrypt off‑chain** | Deoxys‑II (`@oasisprotocol/deoxysii`)                                 |
 
-\### Key handling patterns
+> \* **Nonce length:** Deoxys‑II uses the *first 15 bytes* of the 32‑byte
+> `nonce`. Generating 32 bytes on‑chain is still recommended to minimise bias.
 
-* **Demo** – pass raw `bytes32 key` in the tx (⚠️ revealed if tx not encrypted).
-* **Production** – derive on‑chain via `Sapphire.deriveSymmetricKey` or encrypt
-  the transaction with the [TS wrapper](https://www.npmjs.com/package/@oasisprotocol/sapphire-paratime).
+\### Key‑handling patterns
 
-## 5  Try it on Testnet
+* **Demo** – pass raw `bytes32 key` in the tx (⚠️ revealed if the tx is **not** encrypted).
+* **Production** – derive on‑chain **inside** the contract *or* encrypt the
+  transaction with the [`@oasisprotocol/sapphire-paratime`](https://www.npmjs.com/package/@oasisprotocol/sapphire-paratime) wrapper.
+
+```sol title="Deriving a symmetric key in Solidity"
+bytes32 key = Sapphire.deriveSymmetricKey(
+    "",                       // context (optional salt)
+    abi.encodePacked(msg.sender) // per‑user derivation
+);
+```
+
+## 5  Security best practices
+
+* Never reuse the same **`(key, nonce)` pair**.
+* Include **associated data** (e.g. `msg.sender`) in both `encrypt` and
+  `decrypt` to guarantee authenticity.
+* Events stay forever, so avoid putting secrets that will matter in 10 years.
+
+## 6  Try it on Testnet
 
 ```bash
-# one‑time
 cp .env.example .env      # paste your 0x‑prefixed private key
 npx hardhat deploy --network sapphire_testnet
 ```
 
-Use the same `emit` / `decrypt` tasks.
+Use the same `emit`, `listen`, and `decrypt` tasks.
 
-## 6  FAQ
+## 7  FAQ
 
 <details>
 <summary>Can I listen to encrypted logs in real time ?</summary>
-Yes. Subscribe to `Encrypted` and decrypt each log as soon as it arrives. A
-mini "listener" task is easy to add:
 
-```ts
+Yes. Run `npx hardhat listen …` or subscribe manually:
+
+```ts title="Quick listener"
 const filter = contract.filters.Encrypted();
-provider.on(filter, (log) => { ... });
+provider.on(filter, (log) => {
+  /* parse → decrypt → act */
+});
 ```
+
+ROFL containers typically run a WebSocket listener exactly like this and decrypt
+each event on the fly before calling private getter functions.
+
+</details>
+
+<details>
+<summary>Why 15 bytes of nonce when we stored 32 ?</summary>
+
+Deoxys‑II is defined with a 120‑bit nonce. The extra bytes provide entropy
+without harming compatibility—think of them as "future‑proof padding".
 
 </details>

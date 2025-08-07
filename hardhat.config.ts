@@ -9,6 +9,7 @@ import { HardhatUserConfig } from "hardhat/config";
 import "./tasks/deploy";
 import "./tasks/emit";
 import "./tasks/decrypt";
+import "./tasks/listen";
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
 
