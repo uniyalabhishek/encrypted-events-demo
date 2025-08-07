@@ -1,0 +1,95 @@
+---
+title: Encrypting Events
+description: Step‑by‑step guide to emitting confidential events on Oasis Sapphire
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Tutorial · Encrypting Events on Sapphire
+
+In Ethereum every log is public. With Sapphire you can **encrypt the *data*
+while keeping the *event* indexable**. This tutorial walks through the minimal
+pattern implemented in [`encrypted-events-demo`](https://github.com/oasisprotocol/encrypted-events-demo).
+
+\:::info Completion time
+10 minutes
+\:::
+
+## 1  Why encrypt events ?
+
+Contract state and calldata can be hidden on Sapphire, but *events* are stored
+verbatim so that block explorers and off‑chain services can index them. By
+encrypting the payload you get the best of both worlds: searchable logs +
+private data.
+
+## 2  Set‑up
+
+```bash title="Prerequisites"
+# Node 18 +, Docker (for Localnet), Git
+```
+
+\### Clone & Install
+
+```bash
+git clone https://github.com/oasisprotocol/encrypted-events-demo.git
+cd encrypted-events-demo
+npm install
+```
+
+\### Start Localnet
+
+```bash
+docker run -it -p8544-8548:8544-8548 ghcr.io/oasisprotocol/sapphire-localnet
+```
+
+## 3  Run the demo
+
+- Copy `.env.example` → `.env` and paste a private key from the locally running localnet.
+
+```bash
+npx hardhat deploy  --network sapphire_localnet
+npx hardhat emit    --network sapphire_localnet --contract <ADDR> --message "secret 🚀"
+npx hardhat decrypt --network sapphire_localnet --tx <TX_HASH> --key <PRINTED_KEY>
+```
+
+*The last command prints `secret 🚀`.*
+
+## 4  Deep dive
+
+| Piece                 | Code                                                                  |
+| --------------------- | --------------------------------------------------------------------- |
+| **Nonce**             | `bytes32 nonce = bytes32(Sapphire.randomBytes(32,""));`               |
+| **Encrypt**           | `bytes memory c = Sapphire.encrypt(key, nonce, abi.encode(msg), "");` |
+| **Emit**              | `emit Encrypted(nonce, c);`                                           |
+| **Decrypt off‑chain** | Deoxys‑II (`@oasisprotocol/deoxysii`)                                 |
+
+\### Key handling patterns
+
+* **Demo** – pass raw `bytes32 key` in the tx (⚠️ revealed if tx not encrypted).
+* **Production** – derive on‑chain via `Sapphire.deriveSymmetricKey` or encrypt
+  the transaction with the [TS wrapper](https://www.npmjs.com/package/@oasisprotocol/sapphire-paratime).
+
+## 5  Try it on Testnet
+
+```bash
+# one‑time
+cp .env.example .env      # paste your 0x‑prefixed private key
+npx hardhat deploy --network sapphire_testnet
+```
+
+Use the same `emit` / `decrypt` tasks.
+
+## 6  FAQ
+
+<details>
+<summary>Can I listen to encrypted logs in real time ?</summary>
+Yes. Subscribe to `Encrypted` and decrypt each log as soon as it arrives. A
+mini "listener" task is easy to add:
+
+```ts
+const filter = contract.filters.Encrypted();
+provider.on(filter, (log) => { ... });
+```
+
+</details>

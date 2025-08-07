@@ -1,0 +1,33 @@
+{
+  "name": "encrypted-events-demo",
+  "version": "1.0.0",
+  "description": "Demonstration of emitting and decrypting confidential events on Oasis Sapphire",
+  "main": "index.js",
+  "scripts": {
+    "typechain": "hardhat typechain",
+    "test": "hardhat test"
+  },
+  "keywords": [
+    "oasis",
+    "sapphire",
+    "encrypted events",
+    "confidential"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@oasisprotocol/sapphire-hardhat": "^2.22.2",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/minimatch": "^5.1.2",
+    "hardhat": "^2.26.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@oasisprotocol/deoxysii": "^0.0.6",
+    "@oasisprotocol/sapphire-contracts": "^0.2.14",
+    "dotenv": "^16.4.0"
+  }
+}

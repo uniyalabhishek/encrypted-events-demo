@@ -1,0 +1,36 @@
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { randomBytes } from "crypto";
+import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
+
+describe("EncryptedEvents", function () {
+  it("decrypts emitted ciphertext back to the original plaintext", async function () {
+    const Contract = await ethers.getContractFactory("EncryptedEvents");
+    const contract = await Contract.deploy();
+    await contract.waitForDeployment();
+
+    const keyBytes = randomBytes(32);
+    const keyHex = ethers.hexlify(keyBytes) as `0x${string}`;
+    const message = "Hello Sapphire 👋";
+
+    const tx = await contract.emitEncrypted(keyHex, message);
+    const receipt = await tx.wait();
+
+    const parsed = receipt!.logs
+      .map((l) => contract.interface.parseLog(l))
+      .find((l) => l && l.name === "Encrypted");
+    if (!parsed) throw new Error("Encrypted event not found");
+
+    const nonce: string = parsed.args[0];
+    const ciphertext: string = parsed.args[1];
+
+    const aead = new AEAD(keyBytes);
+    const plaintext = aead.decrypt(
+      ethers.getBytes(nonce).slice(0, NonceSize),
+      ethers.getBytes(ciphertext),
+      new Uint8Array()
+    );
+
+    expect(new TextDecoder().decode(plaintext)).to.equal(message);
+  });
+});
