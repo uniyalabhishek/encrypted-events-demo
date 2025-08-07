@@ -1,35 +1,35 @@
 ---
 title: Encrypting Events
-description: Step‑by‑step guide to emitting confidential events on Oasis Sapphire
+description: Step‑by‑step guide to emitting confidential events on Oasis Sapphire
 ---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-# Tutorial · Encrypting Events on Sapphire
+# Tutorial · Encrypting Events on Sapphire
 
 In Ethereum every log is public. With Sapphire you can **encrypt the *data*
 while keeping the *event* indexable**. This tutorial walks through the minimal
 pattern implemented in [`encrypted-events-demo`](https://github.com/oasisprotocol/encrypted-events-demo).
 
 :::info Completion time
-10 minutes
+10 minutes
 :::
 
-## 1  Why encrypt events ?
+## 1  Why encrypt events?
 
 Contract state and calldata can be hidden on Sapphire, but *events* are stored
 verbatim so that block explorers and off‑chain services can index them. By
 encrypting the payload you get the best of both worlds: searchable logs +
 private data.
 
-## 2  Set‑up
+## 2  Set‑up
 
 ```bash title="Prerequisites"
-# Node 18 +, Docker (for Localnet), Git
+# Node 18+, Docker (for Localnet), Git
 ````
 
-\### Clone & Install
+### Clone & Install
 
 ```bash
 git clone https://github.com/oasisprotocol/encrypted-events-demo.git
@@ -37,13 +37,15 @@ cd encrypted-events-demo
 npm install
 ```
 
-\### Start Localnet
+### Start Localnet
 
 ```bash
 docker run -it -p8544-8548:8544-8548 ghcr.io/oasisprotocol/sapphire-localnet
 ```
 
-## 3  Run the demo
+> **Apple Silicon (M‑series):** add `--platform linux/x86_64` to the `docker run` command.
+
+## 3  Run the demo
 
 * Copy `.env.example` → `.env` and paste a private key from the locally running localnet.
 
@@ -61,39 +63,60 @@ npx hardhat listen  --network sapphire_localnet \
   --contract <ADDR> --key <PRINTED_KEY>
 ```
 
-## 4  Deep dive
+## 4  Deep dive
 
 | Piece                 | Code                                                                  |
 | --------------------- | --------------------------------------------------------------------- |
-| **Nonce** \*          | `bytes32 nonce = bytes32(Sapphire.randomBytes(32,""));`               |
+| **Nonce** \*          | `bytes32 nonce = bytes32(Sapphire.randomBytes(32, ""));`              |
 | **Encrypt**           | `bytes memory c = Sapphire.encrypt(key, nonce, abi.encode(msg), "");` |
 | **Emit**              | `emit Encrypted(nonce, c);`                                           |
 | **Decrypt off‑chain** | Deoxys‑II (`@oasisprotocol/deoxysii`)                                 |
 
-> \* **Nonce length:** Deoxys‑II uses the *first 15 bytes* of the 32‑byte
-> `nonce`. Generating 32 bytes on‑chain is still recommended to minimise bias.
+> * **Nonce length:** Deoxys‑II uses the *first 15 bytes* of the 32‑byte
+>   `nonce`. Generating 32 bytes on‑chain is still recommended to minimise bias.
 
-\### Key‑handling patterns
+### Key‑handling patterns
 
-* **Demo** – pass raw `bytes32 key` in the tx (⚠️ revealed if the tx is **not** encrypted).
-* **Production** – derive on‑chain **inside** the contract *or* encrypt the
-  transaction with the [`@oasisprotocol/sapphire-paratime`](https://www.npmjs.com/package/@oasisprotocol/sapphire-paratime) wrapper.
+* **Demo (this repo)** – pass raw `bytes32 key` in the tx (⚠️ revealed if the tx is **not** encrypted).
+* **Production options:**
 
-```sol title="Deriving a symmetric key in Solidity"
-bytes32 key = Sapphire.deriveSymmetricKey(
-    "",                       // context (optional salt)
-    abi.encodePacked(msg.sender) // per‑user derivation
+  * **A. Wrap the client (recommended):** use `@oasisprotocol/sapphire-viem-v2` (or `@oasisprotocol/sapphire-wagmi-v2`) so the key you pass in calldata stays confidential inside the encrypted transaction.
+  * **B. ECDH on‑chain:** keep a Curve25519 **secret key** in encrypted contract storage, accept the caller’s Curve25519 **public key** in the (encrypted) tx, and derive a session key with X25519:
+
+```sol title="ECDH-style symmetric key derivation on-chain"
+(bytes memory _pk, bytes memory contractSk) = Sapphire.generateCurve25519KeyPair("");
+// callerPublicKey comes from the tx (sent encrypted via the client wrapper)
+bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, contractSk);
+```
+
+#### Add associated data (optional, recommended)
+
+Bind the ciphertext to a value like `msg.sender` for authenticity.
+
+```sol title="Solidity: include associated data"
+bytes32 nonce = bytes32(Sapphire.randomBytes(32, ""));
+bytes memory aad = abi.encode(msg.sender);
+bytes memory cipher = Sapphire.encrypt(key, nonce, abi.encode(message), aad);
+emit Encrypted(nonce, cipher);
+```
+
+```ts title="TypeScript: use the same AAD during decryption"
+const aad = ethers.getBytes(tx.from);
+const plain = aead.decrypt(
+  ethers.getBytes(nonce).slice(0, NonceSize),
+  ethers.getBytes(ciphertext),
+  aad
 );
 ```
 
-## 5  Security best practices
+## 5  Security best practices
 
 * Never reuse the same **`(key, nonce)` pair**.
 * Include **associated data** (e.g. `msg.sender`) in both `encrypt` and
   `decrypt` to guarantee authenticity.
-* Events stay forever, so avoid putting secrets that will matter in 10 years.
+* Events stay forever, so avoid putting secrets that will matter in 10 years.
 
-## 6  Try it on Testnet
+## 6  Try it on Testnet
 
 ```bash
 cp .env.example .env      # paste your 0x‑prefixed private key
@@ -102,10 +125,10 @@ npx hardhat deploy --network sapphire_testnet
 
 Use the same `emit`, `listen`, and `decrypt` tasks.
 
-## 7  FAQ
+## 7  FAQ
 
 <details>
-<summary>Can I listen to encrypted logs in real time ?</summary>
+<summary>Can I listen to encrypted logs in real time?</summary>
 
 Yes. Run `npx hardhat listen …` or subscribe manually:
 
@@ -122,7 +145,7 @@ each event on the fly before calling private getter functions.
 </details>
 
 <details>
-<summary>Why 15 bytes of nonce when we stored 32 ?</summary>
+<summary>Why 15 bytes of nonce when we stored 32?</summary>
 
 Deoxys‑II is defined with a 120‑bit nonce. The extra bytes provide entropy
 without harming compatibility—think of them as "future‑proof padding".

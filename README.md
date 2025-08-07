@@ -58,7 +58,7 @@ npx hardhat decrypt --network sapphire_localnet --tx <TX_HASH> --key <PRINTED_KE
 | `npx hardhat deploy`      | Deploy contract (task)            |
 | `npx hardhat emit`        | Send encrypted event (task)       |
 | `npx hardhat decrypt`     | Decode & decrypt a past tx (task) |
-| `ts-node scripts/demo.ts` | One-shot E2E demo in ~40 LOC     |
+| `npx hardhat run scripts/demo.ts --network sapphire_localnet` | One-shot E2E demo |
 
 ---
 

@@ -23,6 +23,11 @@ const config: HardhatUserConfig = {
     },
     sapphire_testnet: {
       url: "https://testnet.sapphire.oasis.io",
+      chainId: 0x5aff,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+    },
+    sapphire: {
+      url: "https://sapphire.oasis.io",
       chainId: 0x5afe,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
     },

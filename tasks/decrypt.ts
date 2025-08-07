@@ -12,9 +12,13 @@ task("decrypt", "Decrypts the Encrypted event in a transaction")
 
     // Reuse the contract interface for log decoding
     const iface = (await ethers.getContractFactory("EncryptedEvents")).interface;
-    const parsed = receipt.logs
-      .map((l) => iface.parseLog(l))
-      .find((l) => l && l.name === "Encrypted");
+    let parsed: any | undefined;
+    for (const l of receipt.logs) {
+      try {
+        const p = iface.parseLog(l);
+        if (p && p.name === "Encrypted") { parsed = p; break; }
+      } catch {}
+    }
     if (!parsed) throw new Error("Encrypted event not found");
 
     const nonce: string = parsed.args[0];
