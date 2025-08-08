@@ -4,7 +4,8 @@ import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 task("decrypt", "Decrypts the Encrypted event in a transaction")
   .addParam("tx", "Transaction hash containing the Encrypted event")
   .addParam("key", "Hex-encoded 32-byte symmetric key")
-  .setAction(async ({ tx, key }, hre) => {
+  .addFlag("aad", "Use tx.from as associated data (must match contract's encodePacked(msg.sender))")
+  .setAction(async ({ tx, key, aad }, hre) => {
     const { ethers } = hre;
 
     const receipt = await ethers.provider.getTransactionReceipt(tx);
@@ -24,11 +25,18 @@ task("decrypt", "Decrypts the Encrypted event in a transaction")
     const nonce: string = parsed.args[0];
     const ciphertext: string = parsed.args[1];
 
+    let aadBytes = new Uint8Array();
+    if (aad) {
+      const txMeta = await ethers.provider.getTransaction(tx);
+      if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
+      aadBytes = ethers.getBytes(txMeta.from); // 20 bytes to match abi.encodePacked(address)
+    }
+
     const aead = new AEAD(ethers.getBytes(key));
     const plaintext = aead.decrypt(
       ethers.getBytes(nonce).slice(0, NonceSize),
       ethers.getBytes(ciphertext),
-      new Uint8Array() // no associated data
+      aadBytes
     );
 
     console.log("Decrypted message:", new TextDecoder().decode(plaintext));

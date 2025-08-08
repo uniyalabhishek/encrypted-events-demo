@@ -5,6 +5,14 @@ import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 
 describe("EncryptedEvents", function () {
   it("decrypts emitted ciphertext back to the original plaintext", async function () {
+    const net = await ethers.provider.getNetwork();
+    const sapphireChainIds = new Set([0x5afe, 0x5aff, 0x5afd].map(BigInt));
+    if (!sapphireChainIds.has(net.chainId)) {
+      // Sapphire precompiles are not available on non-Sapphire networks (e.g., Hardhat local).
+      // Skip this test in that case.
+      // eslint-disable-next-line no-restricted-syntax
+      (this as any).skip?.();
+    }
     const Contract = await ethers.getContractFactory("EncryptedEvents");
     const contract = await Contract.deploy();
     await contract.waitForDeployment();

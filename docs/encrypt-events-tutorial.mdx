@@ -1,35 +1,37 @@
 ---
-title: Encrypting Events
-description: Step‑by‑step guide to emitting confidential events on Oasis Sapphire
+title: Encrypting Events on Sapphire
+description: Step-by-step guide to emitting confidential events and decrypting them off-chain
 ---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-# Tutorial · Encrypting Events on Sapphire
+<!-- markdownlint-disable MD025 MD033 -->
 
-In Ethereum every log is public. With Sapphire you can **encrypt the *data*
-while keeping the *event* indexable**. This tutorial walks through the minimal
-pattern implemented in [`encrypted-events-demo`](https://github.com/oasisprotocol/encrypted-events-demo).
+## Encrypting Events on Sapphire
 
-:::info Completion time
-10 minutes
-:::
+On Ethereum, **events are public**. On Sapphire, you can **encrypt the event payload** while keeping the event itself indexable. This guide shows two minimal patterns (both included in the example repo):
 
-## 1  Why encrypt events?
+- **A — Pass a key in the (encrypted) tx:** generate a symmetric key off‑chain, pass it to the contract (safe when the tx is encrypted), then emit ciphertext.
+- **B — Derive the key on‑chain (ECDH):** exchange Curve25519 keys, derive a session key via X25519 on-chain, then emit ciphertext.
 
-Contract state and calldata can be hidden on Sapphire, but *events* are stored
-verbatim so that block explorers and off‑chain services can index them. By
-encrypting the payload you get the best of both worlds: searchable logs +
-private data.
+> ⏱️ **10 minutes**
 
-## 2  Set‑up
+---
+
+### 1) Why encrypt events?
+
+Sapphire can hide calldata and state, but **logs remain public by design** so indexers can operate. Encrypting the log payload gives you **searchable events + private content**.
+
+---
+
+### 2) Setup
 
 ```bash title="Prerequisites"
 # Node 18+, Docker (for Localnet), Git
 ````
 
-### Clone & Install
+#### Clone & Install
 
 ```bash
 git clone https://github.com/oasisprotocol/encrypted-events-demo.git
@@ -37,33 +39,59 @@ cd encrypted-events-demo
 npm install
 ```
 
-### Start Localnet
+#### Start Localnet
 
 ```bash
-docker run -it -p8544-8548:8544-8548 ghcr.io/oasisprotocol/sapphire-localnet
+docker run -it -p8544:8544 -p8545:8545 -p8546:8546 ghcr.io/oasisprotocol/sapphire-localnet
+# Apple Silicon (M‑series): add --platform linux/amd64 if the image lacks arm64
 ```
 
-> **Apple Silicon (M‑series):** add `--platform linux/x86_64` to the `docker run` command.
+---
 
-## 3  Run the demo
+### 3) Run the demo
 
-* Copy `.env.example` → `.env` and paste a private key from the locally running localnet.
+<Tabs>
+  <TabItem value="a" label="A — Key in the tx (default)" default>
 
 ```bash
-npx hardhat deploy  --network sapphire_localnet
-npx hardhat emit    --network sapphire_localnet \
+# 1) Deploy simple variant
+npx hardhat deploy --network sapphire_localnet
+
+# 2) Emit an encrypted event (the task prints the symmetric key)
+npx hardhat emit --network sapphire_localnet \
   --contract <ADDR> --message "secret 🚀"
 
-# Decrypt a past tx
+# 3) Decrypt a past tx
 npx hardhat decrypt --network sapphire_localnet \
   --tx <TX_HASH> --key <PRINTED_KEY>
 
-# 🔊  Live: listen & decrypt as events arrive
-npx hardhat listen  --network sapphire_localnet \
+# 4) 🔊  Live: listen & decrypt as events arrive
+npx hardhat listen --network sapphire_localnet \
   --contract <ADDR> --key <PRINTED_KEY>
 ```
 
-## 4  Deep dive
+  </TabItem>
+  <TabItem value="b" label="B — On‑chain ECDH (alternate)">
+
+```bash
+# 1) Deploy ECDH variant (prints contract Curve25519 public key)
+npx hardhat deploy-ecdh --network sapphire_localnet
+
+# 2) Emit (generates a caller Curve25519 keypair & prints the SECRET — demo only; do NOT log secrets in production)
+npx hardhat emit-ecdh --network sapphire_localnet \
+  --contract <ADDR> --message "secret 🚀"
+
+# 3) 🔊  Live: listen & decrypt (uses the printed caller SECRET)
+npx hardhat listen-ecdh --network sapphire_localnet \
+  --contract <ADDR> --secret <CALLER_SECRET_HEX>
+```
+
+  </TabItem>
+</Tabs>
+
+---
+
+### 4) Deep dive
 
 | Piece                 | Code                                                                  |
 | --------------------- | --------------------------------------------------------------------- |
@@ -72,36 +100,33 @@ npx hardhat listen  --network sapphire_localnet \
 | **Emit**              | `emit Encrypted(nonce, c);`                                           |
 | **Decrypt off‑chain** | Deoxys‑II (`@oasisprotocol/deoxysii`)                                 |
 
-> * **Nonce length:** Deoxys‑II uses the *first 15 bytes* of the 32‑byte
->   `nonce`. Generating 32 bytes on‑chain is still recommended to minimise bias.
+ > - **Nonce length:** **Deoxys‑II uses the first 15 bytes** of the 32‑byte nonce. Generating 32 bytes on‑chain is recommended to minimize bias.
 
-### Key‑handling patterns
+#### Key‑handling patterns
 
-* **Demo (this repo)** – pass raw `bytes32 key` in the tx (⚠️ revealed if the tx is **not** encrypted).
-* **Production options:**
+- **Default (this repo):** all tasks run through `@oasisprotocol/sapphire-hardhat`, which **encrypts transactions/calls automatically** on Sapphire networks.
+- **Pass a key in the tx (demo A):** provide `bytes32 key` as calldata (safe because the tx itself is encrypted by the wrapper).
+- **ECDH on‑chain (demo B):** keep the contract’s Curve25519 **secret key** in encrypted state, accept the caller’s Curve25519 **public key**, and derive a shared key via X25519:
 
-  * **A. Wrap the client (recommended):** use `@oasisprotocol/sapphire-viem-v2` (or `@oasisprotocol/sapphire-wagmi-v2`) so the key you pass in calldata stays confidential inside the encrypted transaction.
-  * **B. ECDH on‑chain:** keep a Curve25519 **secret key** in encrypted contract storage, accept the caller’s Curve25519 **public key** in the (encrypted) tx, and derive a session key with X25519:
+  ```sol title="ECDH-style symmetric key derivation on-chain"
+  (Sapphire.Curve25519PublicKey pk, Sapphire.Curve25519SecretKey sk) =
+    Sapphire.generateCurve25519KeyPair("");
+  bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, sk);
+  ```
 
-```sol title="ECDH-style symmetric key derivation on-chain"
-(bytes memory _pk, bytes memory contractSk) = Sapphire.generateCurve25519KeyPair("");
-// callerPublicKey comes from the tx (sent encrypted via the client wrapper)
-bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, contractSk);
-```
+#### Add associated data (recommended)
 
-#### Add associated data (optional, recommended)
-
-Bind the ciphertext to a value like `msg.sender` for authenticity.
+Bind the ciphertext to `msg.sender` for authenticity:
 
 ```sol title="Solidity: include associated data"
 bytes32 nonce = bytes32(Sapphire.randomBytes(32, ""));
-bytes memory aad = abi.encode(msg.sender);
+bytes memory aad = abi.encodePacked(msg.sender); // 20 bytes
 bytes memory cipher = Sapphire.encrypt(key, nonce, abi.encode(message), aad);
 emit Encrypted(nonce, cipher);
 ```
 
 ```ts title="TypeScript: use the same AAD during decryption"
-const aad = ethers.getBytes(tx.from);
+const aad = ethers.getBytes(tx.from); // 20 bytes
 const plain = aead.decrypt(
   ethers.getBytes(nonce).slice(0, NonceSize),
   ethers.getBytes(ciphertext),
@@ -109,45 +134,38 @@ const plain = aead.decrypt(
 );
 ```
 
-## 5  Security best practices
+---
 
-* Never reuse the same **`(key, nonce)` pair**.
-* Include **associated data** (e.g. `msg.sender`) in both `encrypt` and
-  `decrypt` to guarantee authenticity.
-* Events stay forever, so avoid putting secrets that will matter in 10 years.
+### 5) Security best practices
 
-## 6  Try it on Testnet
+- **Never reuse** a `(key, nonce)` pair.
+- Prefer **AAD** (e.g., `msg.sender`) to bind ciphertexts to callers.
+- **Transactions must be encrypted** when passing a raw key via calldata; otherwise use the **ECDH** pattern.
+- **Do not log secrets** (symmetric keys or Curve25519 secrets) in production.
+- **Events are permanent**—don’t emit data you’ll need to keep secret for years.
+- **Testnet is not production**; confidentiality isn’t guaranteed there.
+
+---
+
+### 6) Try it on Testnet
 
 ```bash
 cp .env.example .env      # paste your 0x‑prefixed private key
 npx hardhat deploy --network sapphire_testnet
+npx hardhat deploy-ecdh --network sapphire_testnet
+# use the same emit/listen/decrypt tasks as Localnet
 ```
 
-Use the same `emit`, `listen`, and `decrypt` tasks.
+---
 
-## 7  FAQ
+### 7) FAQ
 
 <details>
-<summary>Can I listen to encrypted logs in real time?</summary>
-
-Yes. Run `npx hardhat listen …` or subscribe manually:
-
-```ts title="Quick listener"
-const filter = contract.filters.Encrypted();
-provider.on(filter, (log) => {
-  /* parse → decrypt → act */
-});
-```
-
-ROFL containers typically run a WebSocket listener exactly like this and decrypt
-each event on the fly before calling private getter functions.
-
+<summary>Can I decrypt logs as they arrive?</summary>
+Yes. Use `npx hardhat listen …` (wrapper) or `npx hardhat listen-ecdh …` (ECDH), or subscribe manually with a filter and decrypt each event.
 </details>
 
 <details>
-<summary>Why 15 bytes of nonce when we stored 32?</summary>
-
-Deoxys‑II is defined with a 120‑bit nonce. The extra bytes provide entropy
-without harming compatibility—think of them as "future‑proof padding".
-
+<summary>Why 15 bytes of nonce if I stored 32?</summary>
+Deoxys‑II defines a **120‑bit nonce**; Sapphire’s `encrypt/decrypt` use the first 15 bytes. The extra bytes offer entropy headroom.
 </details>

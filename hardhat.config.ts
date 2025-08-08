@@ -10,11 +10,21 @@ import "./tasks/deploy";
 import "./tasks/emit";
 import "./tasks/decrypt";
 import "./tasks/listen";
+import "./tasks/deploy-ecdh";
+import "./tasks/emit-ecdh";
+import "./tasks/listen-ecdh";
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
 
 const config: HardhatUserConfig = {
-  solidity: "0.8.28",
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      optimizer: { enabled: true, runs: 200 },
+      // Use Paris explicitly to avoid PUSH0 on chains that might not support Shanghai yet.
+      evmVersion: "paris",
+    },
+  },
   networks: {
     sapphire_localnet: {
       url: "http://localhost:8545",
