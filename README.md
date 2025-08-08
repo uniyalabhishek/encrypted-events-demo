@@ -74,5 +74,3 @@ State and calldata can be fully encrypted, but **logs are intentionally public**
 ---
 
 ## License Apache License 2.0 — see [LICENSE](LICENSE)
-
-\
