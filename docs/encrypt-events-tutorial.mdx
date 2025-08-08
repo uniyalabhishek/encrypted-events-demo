@@ -38,7 +38,7 @@ Sapphire can fully hide **calldata** and **state**, but **logs are public by des
 
 ```bash title="Prerequisites"
 # Node 18+, Docker (for Localnet), Git
-````
+```
 
 ### Clone & Install
 
@@ -175,7 +175,8 @@ A ROFL container can subscribe to your contract’s `Encrypted` events, then dec
 - **Do not log secrets** (symmetric keys or Curve25519 secrets) in production.
 - **Events are permanent**—emit only what you can keep confidential long‑term.
 - **Testnet is not production**; confidentiality is not guaranteed there.
-- Consider indexing the `bytes32 nonce` in the event for more efficient filters.
+
+- **Indexed nonce.** The event uses `bytes32 indexed nonce` for efficient filtering.
 
 ---
 

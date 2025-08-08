@@ -1,76 +1,98 @@
-# Encrypted Events Demo for Oasis Sapphire
+# Encrypted Events Demo (Oasis Sapphire)
 
-This repo shows the **smallest possible** way to emit *confidential* events on the Oasis Sapphire confidential EVM and to decrypt them off-chain.
+Minimal, production‑ready patterns for emitting **confidential** events on Sapphire and decrypting them off‑chain.
 
-**Contract:** `contracts/EncryptedEvents.sol`  
-**Stack:** TypeScript · Hardhat · Ethers v6 · Deoxys-II
+* **Event:** `event Encrypted(bytes32 indexed nonce, bytes ciphertext);`
+* **AEAD:** Deoxys‑II (`NonceSize = 15`); we store a 32‑byte nonce on‑chain and use only the first 15 bytes for decryption.
+* **Two flows**
 
----
+  * **A — Key in tx (default):** pass a 32‑byte symmetric key in an **encrypted** tx.
+  * **B — On‑chain ECDH:** derive the symmetric key via X25519 between caller and contract.
 
-## 1. Quick Start (⚡ Localnet in 2 mins)
+## Requirements
+
+* Node 18+
+* Docker (for Localnet)
+* Git
+
+## 1) Start Sapphire Localnet
 
 ```bash
-# ➊ Spin up Sapphire Localnet
 docker run -it -p8544:8544 -p8545:8545 -p8546:8546 ghcr.io/oasisprotocol/sapphire-localnet
+# Apple Silicon: add --platform linux/amd64 if the image lacks arm64
+```
 
-# ➋ Clone & install
+## 2) Clone & Install
+
+```bash
 git clone https://github.com/oasisprotocol/encrypted-events-demo.git
 cd encrypted-events-demo
 npm install
-npm run typechain      # optional, generates typings
-
-# Copy .env.example → .env and paste a private key from the locally running localnet
-
-# ➌ Run the happy path
-npx hardhat deploy --network sapphire_localnet
-npx hardhat emit   --network sapphire_localnet --contract <ADDR> --message "Hello Sapphire 👋"
-npx hardhat decrypt --network sapphire_localnet --tx <TX_HASH> --key <PRINTED_KEY>
+cp .env.example .env   # paste a 0x‑prefixed private key (Localnet or your own)
 ```
 
----
+## 3) Flow A — Key in the (encrypted) tx
 
-## 2. How it Works
+The Sapphire Hardhat plugin encrypts calldata on Sapphire networks, so passing a raw key is safe there.
 
-| Step | On-chain / Off-chain | What happens                               |
-| ---- | -------------------- | ------------------------------------------ |
-| 1    | Off-chain            | Script generates a 32-byte symmetric key   |
-| 2    | On-chain             | `Sapphire.randomBytes` → unique `nonce`    |
-| 3    | On-chain             | `Sapphire.encrypt(key, nonce, message)`    |
-| 4    | On-chain             | `emit Encrypted(nonce, ciphertext)`        |
-| 5    | Off-chain            | Decrypt with Deoxys-II using `(key,nonce)` |
+```bash
+# Deploy
+npx hardhat deploy --network sapphire_localnet
+# copy printed address to $ADDR
 
----
+# Emit (prints the symmetric key). Add --aad to bind to msg.sender.
+npx hardhat emit --network sapphire_localnet --contract $ADDR --message "secret 🚀" [--aad]
 
-## 3. Security Notes & Gas Cost
+# Decrypt a past tx by hash (add --aad if you used it when emitting)
+npx hardhat decrypt --network sapphire_localnet --tx <TX_HASH> --key <PRINTED_KEY> [--aad]
 
-* **Events are public.** Anyone sees the ciphertext & nonce. *Never* emit plaintext you expect to keep private.
-* **Key handling.** The demo passes the key as calldata, which is fine only when the transaction itself is encrypted. In production consider:
+# Live listen & decrypt (add --aad if you used it)
+npx hardhat listen --network sapphire_localnet --contract $ADDR --key <PRINTED_KEY> [--aad]
+```
 
-  * Deriving the key on-chain (`Sapphire.deriveSymmetricKey`), or
-  * Encrypting the transaction with the Sapphire plugin/wrappers
-* **Do not log secrets** (symmetric keys or Curve25519 secrets) in production.
-* **Testnet is not production**; confidentiality is not guaranteed there.
+## 4) Flow B — On‑chain ECDH (X25519)
 
----
+```bash
+# Deploy (prints the contract's Curve25519 public key)
+npx hardhat deploy-ecdh --network sapphire_localnet
+# copy printed address to $ADDR
 
-## 4. Project Scripts
+# Emit (generates an ephemeral caller keypair; DEMO prints the SECRET). Add --aad to bind to msg.sender.
+npx hardhat emit-ecdh --network sapphire_localnet --contract $ADDR --message "secret 🚀" [--aad]
 
-| Command                                                       | Purpose                           |
-| ------------------------------------------------------------- | --------------------------------- |
-| `npm test`                                                    | Unit test decrypts emitted event  |
-| `npx hardhat deploy`                                          | Deploy contract (task)            |
-| `npx hardhat emit`                                            | Send encrypted event (task)       |
-| `npx hardhat decrypt`                                         | Decode & decrypt a past tx (task) |
-| `npx hardhat run scripts/demo.ts --network sapphire_localnet` | One-shot E2E demo                 |
+# Live listen & decrypt using the printed caller SECRET (add --aad if you used it)
+npx hardhat listen-ecdh --network sapphire_localnet --contract $ADDR --secret <CALLER_SECRET_HEX> [--aad]
+```
 
----
+## 5) One‑shot E2E Script
 
-## 5. FAQ
+```bash
+npx hardhat run scripts/demo.ts --network sapphire_localnet
+```
 
-### Does Sapphire hide *all* transaction data?
+## 6) Tests
 
-State and calldata can be fully encrypted, but **logs are intentionally public** so that off-chain indexers can work. This repo demonstrates encrypting the log payload.
+Run against Localnet (the tests skip on non‑Sapphire networks):
 
----
+```bash
+npm test
+# or: npx hardhat test --network sapphire_localnet
+```
 
-## License Apache License 2.0 — see [LICENSE](LICENSE)
+## 7) Testnet / Mainnet
+
+```bash
+# Put your prod/test key in .env
+npx hardhat deploy --network sapphire_testnet
+npx hardhat deploy-ecdh --network sapphire_testnet
+# Use the same emit / listen / decrypt tasks as above (swap network)
+```
+
+## Notes & Tips
+
+* **Indexed nonce:** `bytes32 indexed nonce` enables fast topic filters (you can filter by a specific nonce; listeners use `filters.Encrypted(null)` to match all).
+* **AAD (recommended):** Bind ciphertexts to `msg.sender` by passing AAD (`abi.encodePacked(address)` on-chain; use `tx.from` off-chain).
+* **Never reuse `(key, nonce)`** and **don’t log secrets** (keys or Curve25519 secret keys) in production.
+* **Encryption call:** `Sapphire.encrypt(key, nonce, bytes(message), aad)`.
+
+## **License:** Apache-2.0

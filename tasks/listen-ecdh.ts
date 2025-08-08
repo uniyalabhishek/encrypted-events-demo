@@ -17,7 +17,7 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
     const { ethers } = hre;
 
     const instance = await ethers.getContractAt("EncryptedEventsECDH", contract);
-    const filter   = instance.filters.Encrypted();
+    const filter   = instance.filters.Encrypted(undefined); // nonce is indexed; undefined = any
 
     // Derive the shared symmetric key: scalarMult(callerSecret, contractPublic)
     const contractPkHex: string = await instance.contractPublicKey();
@@ -48,7 +48,7 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
           }
           const txMeta = await ethers.provider.getTransaction(txHash);
           if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
-          aadBytes = ethers.getBytes(txMeta.from); // 20 bytes
+          aadBytes = Uint8Array.from(ethers.getBytes(txMeta.from)); // 20 bytes
         }
 
         const plaintext = aead.decrypt(

@@ -15,7 +15,7 @@ import {Sapphire} from "@oasisprotocol/sapphire-contracts/contracts/Sapphire.sol
  *  - Encrypt + emit: same event shape as the simple example.
  */
 contract EncryptedEventsECDH {
-    event Encrypted(bytes32 nonce, bytes ciphertext);
+    event Encrypted(bytes32 indexed nonce, bytes ciphertext);
 
     // Number of random bytes used to construct the 32-byte nonce for Deoxys-II
     uint256 private constant NONCE_SIZE_BYTES = 32;

@@ -29,7 +29,7 @@ task("decrypt", "Decrypts the Encrypted event in a transaction")
     if (aad) {
       const txMeta = await ethers.provider.getTransaction(tx);
       if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
-      aadBytes = ethers.getBytes(txMeta.from); // 20 bytes to match abi.encodePacked(address)
+      aadBytes = Uint8Array.from(ethers.getBytes(txMeta.from)); // 20 bytes to match abi.encodePacked(address)
     }
 
     const aead = new AEAD(ethers.getBytes(key));

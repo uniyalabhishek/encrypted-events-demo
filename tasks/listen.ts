@@ -18,7 +18,7 @@ task("listen", "Subscribes to Encrypted events and decrypts logs live")
     const { ethers } = hre;
 
     const instance = await ethers.getContractAt("EncryptedEvents", contract);
-    const filter   = instance.filters.Encrypted();
+    const filter   = instance.filters.Encrypted(undefined); // nonce is indexed; undefined = any
 
     console.log("🔊  Listening for Encrypted events …  (Ctrl‑C to quit)");
 
@@ -42,7 +42,7 @@ task("listen", "Subscribes to Encrypted events and decrypts logs live")
           const txMeta = await ethers.provider.getTransaction(txHash);
           if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
           // Match abi.encodePacked(msg.sender) → 20-byte address
-          aadBytes = ethers.getBytes(txMeta.from);
+          aadBytes = Uint8Array.from(ethers.getBytes(txMeta.from));
         }
 
         const plaintext = aead.decrypt(
