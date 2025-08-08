@@ -111,7 +111,7 @@ npx hardhat listen-ecdh --network sapphire_localnet \
 | Piece                 | Code (on-chain) / Library (off-chain)                       |
 | --------------------- | ----------------------------------------------------------- |
 | **Nonce**             | `bytes32 n = bytes32(Sapphire.randomBytes(32, ""));`        |
-| **Encrypt**           | `bytes c = Sapphire.encrypt(key, n, abi.encode(msg), aad);` |
+| **Encrypt**           | `bytes c = Sapphire.encrypt(key, n, bytes(message), aad);` |
 | **Emit**              | `emit Encrypted(n, c);`                                     |
 | **Decrypt off‑chain** | `@oasisprotocol/deoxysii` (`AEAD`, `NonceSize = 15`)        |
 

@@ -59,7 +59,7 @@ contract EncryptedEventsECDH {
         bytes memory cipher = Sapphire.encrypt(
             key,
             nonce,
-            abi.encode(message),
+            bytes(message),
             empty
         );
         emit Encrypted(nonce, cipher);
@@ -78,7 +78,7 @@ contract EncryptedEventsECDH {
         bytes memory cipher = Sapphire.encrypt(
             key,
             nonce,
-            abi.encode(message),
+            bytes(message),
             aad
         );
         emit Encrypted(nonce, cipher);
