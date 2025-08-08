@@ -62,4 +62,4 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
         console.error("⚠️  Failed to decrypt event:", e);
       }
     });
-  });
+});

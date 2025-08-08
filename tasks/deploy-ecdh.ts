@@ -12,4 +12,4 @@ task("deploy-ecdh", "Deploys the EncryptedEventsECDH contract and prints its Cur
 
     console.log("EncryptedEventsECDH deployed to:", addr);
     console.log("Contract Curve25519 public key (hex):", pk);
-  });
+});

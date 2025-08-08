@@ -24,4 +24,4 @@ task("emit", "Calls emitEncrypted on a deployed contract")
     if (aad) {
       console.log("AAD used: abi.encodePacked(msg.sender)");
     }
-  });
+});

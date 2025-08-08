@@ -19,6 +19,7 @@ Minimal, production‑ready patterns for emitting **confidential** events on Sap
 
 ```bash
 docker run -it -p8544:8544 -p8545:8545 -p8546:8546 ghcr.io/oasisprotocol/sapphire-localnet
+# On Apple Silicon, add: --platform linux/amd64  (if the image lacks arm64)
 ```
 
 ## 2) Clone & Install

@@ -40,4 +40,4 @@ task("decrypt", "Decrypts the Encrypted event in a transaction")
     );
 
     console.log("Decrypted message:", new TextDecoder().decode(plaintext));
-  });
+});

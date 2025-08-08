@@ -1,4 +1,3 @@
-// tasks/listen.ts
 import { task } from "hardhat/config";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 
@@ -56,4 +55,4 @@ task("listen", "Subscribes to Encrypted events and decrypts logs live")
         console.error("⚠️  Failed to decrypt event:", e);
       }
     });
-  });
+});

@@ -1,4 +1,3 @@
-// hardhat.config.ts
 import "dotenv/config";
 import "@oasisprotocol/sapphire-hardhat";
 import "@nomicfoundation/hardhat-toolbox";

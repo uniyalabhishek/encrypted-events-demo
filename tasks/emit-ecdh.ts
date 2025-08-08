@@ -35,4 +35,4 @@ task("emit-ecdh", "Calls emitEncryptedECDH using a fresh caller Curve25519 keypa
     if (aad) {
       console.log("AAD used: abi.encodePacked(msg.sender)");
     }
-  });
+});
