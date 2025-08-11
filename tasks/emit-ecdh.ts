@@ -4,8 +4,9 @@ import { x25519 } from "@noble/curves/ed25519";
 task("emit-ecdh", "Calls emitEncryptedECDH using a fresh caller Curve25519 keypair")
   .addParam("contract", "Address of the deployed EncryptedEventsECDH contract")
   .addOptionalParam("message", "Plaintext to encrypt", "Hello Sapphire 👋")
+  .addOptionalParam("secret", "Hex-encoded 32-byte caller secret key")
   .addFlag("aad", "Include associated data (msg.sender) for authenticity")
-  .setAction(async ({ contract, message, aad }, hre) => {
+  .setAction(async ({ contract, message, aad, secret }, hre) => {
     const { ethers } = hre;
 
     const instance = await ethers.getContractAt("EncryptedEventsECDH", contract);
@@ -13,8 +14,11 @@ task("emit-ecdh", "Calls emitEncryptedECDH using a fresh caller Curve25519 keypa
     // Fetch contract's Curve25519 public key (32 bytes as 0x-hex)
     const contractPkHex: string = await instance.contractPublicKey();
 
-    // Generate caller Curve25519 keypair using noble x25519
-    const callerSecret = ethers.randomBytes(32);
+    // Caller Curve25519 keypair (use provided secret if given; otherwise generate ephemeral)
+    const callerSecret = secret ? ethers.getBytes(secret) : ethers.randomBytes(32);
+    if (callerSecret.length !== 32) {
+      throw new Error("Caller secret must be 32 bytes");
+    }
     const callerPublic = x25519.getPublicKey(callerSecret);
     const callerPkHex = ethers.hexlify(callerPublic) as `0x${string}`;
     const callerSkHex = ethers.hexlify(callerSecret) as `0x${string}`;
@@ -34,5 +38,8 @@ task("emit-ecdh", "Calls emitEncryptedECDH using a fresh caller Curve25519 keypa
     console.log("Contract Curve25519 public key (hex):", contractPkHex);
     if (aad) {
       console.log("AAD used: abi.encodePacked(msg.sender)");
+      console.warn("Note: AAD binds to msg.sender. This matches tx.from only for direct EOA→contract calls.");
+      console.warn("If a relayer/forwarder/another contract calls this, msg.sender ≠ tx.from and off-chain decryption will fail.");
+      console.warn("Consider context-bound AAD instead (e.g., abi.encodePacked(block.chainid, address(this))) or emit an explicit sender address and include it in AAD.");
     }
-});
+  });

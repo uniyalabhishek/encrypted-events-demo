@@ -27,6 +27,9 @@ task("decrypt", "Decrypts the Encrypted event in a transaction")
 
     let aadBytes = new Uint8Array();
     if (aad) {
+      console.warn("AAD mode expects abi.encodePacked(msg.sender). This matches tx.from only for direct EOA→contract calls.");
+      console.warn("If a relayer/forwarder/another contract called the emitter, msg.sender ≠ tx.from and decryption will fail.");
+      console.warn("Consider context-bound AAD (e.g., abi.encodePacked(block.chainid, address(this))) or emitting an explicit sender address and including it in AAD.");
       const txMeta = await ethers.provider.getTransaction(tx);
       if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
       aadBytes = Uint8Array.from(ethers.getBytes(txMeta.from)); // 20 bytes to match abi.encodePacked(address)

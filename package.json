@@ -29,6 +29,7 @@
   "dependencies": {
     "@oasisprotocol/deoxysii": "^0.0.6",
     "@oasisprotocol/sapphire-contracts": "^0.2.14",
+    "@noble/hashes": "^1.4.0",
     "dotenv": "^16.4.0"
   }
 }

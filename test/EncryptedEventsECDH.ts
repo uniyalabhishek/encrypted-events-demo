@@ -2,6 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 import { x25519 } from "@noble/curves/ed25519";
+import { deriveSapphireSymmetricKeyFromShared } from "../utils/sapphire-ecdh";
 
 describe("EncryptedEventsECDH", function () {
   it("derives a shared key (X25519) and decrypts the emitted ciphertext", async function () {
@@ -30,6 +31,7 @@ describe("EncryptedEventsECDH", function () {
     // 3) Fetch contract public key and derive shared key off‑chain
     const contractPkHex: string = await contract.contractPublicKey();
     const shared = x25519.scalarMult(callerSk, ethers.getBytes(contractPkHex)); // 32 bytes
+    const key = deriveSapphireSymmetricKeyFromShared(shared);
 
     // 4) Parse log and decrypt
     const parsed = receipt!.logs
@@ -40,7 +42,7 @@ describe("EncryptedEventsECDH", function () {
     const nonce: string = parsed.args[0];
     const ciphertext: string = parsed.args[1];
 
-    const aead = new AEAD(shared);
+    const aead = new AEAD(key);
     const plaintext = aead.decrypt(
       ethers.getBytes(nonce).slice(0, NonceSize),
       ethers.getBytes(ciphertext),

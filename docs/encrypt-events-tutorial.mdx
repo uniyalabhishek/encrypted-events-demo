@@ -22,6 +22,8 @@ This guide shows two minimal, production-ready patterns (both are in the example
 
 > ⏱️ **10 minutes** · 🧰 Node 18+, Docker (Localnet), Git · 🧪 The repo also includes unit tests and a one‑shot E2E script.
 
+> ⚠️ **Testnet is not production.** Confidentiality is **not guaranteed** on Testnet. Use Localnet for development and Sapphire Mainnet for production.
+
 ---
 
 ## Why encrypt event payloads?
@@ -62,25 +64,28 @@ docker run -it -p8544:8544 -p8545:8545 -p8546:8546 ghcr.io/oasisprotocol/sapphir
 <Tabs>
   <TabItem value="a" label="A — Key in the tx (default)" default>
 
+> ⚠️ **Only on Sapphire.** Passing a raw key in calldata is safe **only** on Sapphire networks because the Sapphire wrappers **encrypt calls/transactions**. Do **not** use this pattern on non‑Sapphire chains.
+
 The Hardhat Sapphire plugin **encrypts transactions/calls automatically** on Sapphire networks, so passing a raw key in calldata is safe.
 
 ```bash
 # 1) Deploy the simple variant
 npx hardhat deploy --network sapphire_localnet
-# copy the printed address to $ADDR
+# copy the printed address to $ADDR (this is the CONTRACT address, not a tx hash)
 
 # 2) Emit an encrypted event (prints the symmetric key)
+#    Tip: provide --key to reuse the same key across emit & listen.
 npx hardhat emit --network sapphire_localnet \
-  --contract $ADDR --message "secret 🚀"
+  --contract $ADDR --message "secret 🚀" [--key <HEX32>]
 # ⚠️ **DEMO ONLY: Do NOT log secret keys in production.**
 
 # 3) Decrypt a past tx by hash
 npx hardhat decrypt --network sapphire_localnet \
-  --tx <TX_HASH> --key <PRINTED_KEY>
+  --tx <TX_HASH> --key <PRINTED_OR_PROVIDED_KEY> [--aad]
 
-# 4) 🔊  Live: listen & decrypt as events arrive
+# 4) 🔊  Live: listen & decrypt as events arrive (stays open until Ctrl‑C)
 npx hardhat listen --network sapphire_localnet \
-  --contract $ADDR --key <PRINTED_KEY>
+  --contract $ADDR --key <PRINTED_OR_PROVIDED_KEY> [--aad]
 ```
 
   </TabItem>
@@ -91,14 +96,15 @@ npx hardhat listen --network sapphire_localnet \
 npx hardhat deploy-ecdh --network sapphire_localnet
 # copy the printed address to $ADDR
 
-# 2) Emit (generates a fresh caller Curve25519 keypair — DEMO prints the SECRET)
+# 2) Emit
+#    Tip: provide --secret to reuse the same caller secret across emit & listen.
 npx hardhat emit-ecdh --network sapphire_localnet \
-  --contract $ADDR --message "secret 🚀"
+  --contract $ADDR --message "secret 🚀" [--secret <HEX32>] [--aad]
 # ⚠️ **DEMO ONLY: Do NOT log secret keys in production.**
 
-# 3) 🔊  Live: listen & decrypt (derives the same shared key from $SK)
+# 3) 🔊  Live: listen & decrypt (derives the same shared key from --secret)
 npx hardhat listen-ecdh --network sapphire_localnet \
-  --contract $ADDR --secret <CALLER_SECRET_HEX>
+  --contract $ADDR --secret <HEX32> [--aad]
 ```
 
   </TabItem>
@@ -108,19 +114,19 @@ npx hardhat listen-ecdh --network sapphire_localnet \
 
 ## How it works (at a glance)
 
-| Piece                 | Code (on-chain) / Library (off-chain)                       |
-| --------------------- | ----------------------------------------------------------- |
-| **Nonce**             | `bytes32 n = bytes32(Sapphire.randomBytes(32, ""));`        |
+| Piece                 | Code (on-chain) / Library (off-chain)                      |
+| --------------------- | ---------------------------------------------------------- |
+| **Nonce**             | `bytes32 n = bytes32(Sapphire.randomBytes(32, bytes("")));`       |
 | **Encrypt**           | `bytes c = Sapphire.encrypt(key, n, bytes(message), aad);` |
-| **Emit**              | `emit Encrypted(n, c);`                                     |
-| **Decrypt off‑chain** | `@oasisprotocol/deoxysii` (`AEAD`, `NonceSize = 15`)        |
+| **Emit**              | `emit Encrypted(n, c);`                                    |
+| **Decrypt off‑chain** | `@oasisprotocol/deoxysii` (`AEAD`, `NonceSize = 15`)       |
 
 > **Nonce size:** Deoxys‑II uses a **120‑bit (15 bytes)** nonce. We store 32 bytes on chain and use only the first 15 bytes during decryption.
 
 ### Key handling patterns
 
-- **Default (wrapper‑encrypted tx):** Provide `bytes32 key` in calldata. Safe because the Sapphire Hardhat plugin **encrypts transactions** on Sapphire networks.
-- **ECDH on‑chain:** The contract holds a Curve25519 **secret key** in encrypted state, the caller sends a **public key**; both sides derive the same 32‑byte key via X25519.
+* **Default (wrapper‑encrypted tx):** Provide `bytes32 key` in calldata. Safe because the Sapphire Hardhat plugin **encrypts transactions** on Sapphire networks.
+* **ECDH on‑chain:** The contract holds a Curve25519 **secret key** in encrypted state, the caller sends a **public key**; both sides derive the same 32‑byte key via X25519.
 
 ```sol title="ECDH-style symmetric key derivation on-chain"
 (Sapphire.Curve25519PublicKey pk, Sapphire.Curve25519SecretKey sk) =
@@ -128,14 +134,16 @@ npx hardhat listen-ecdh --network sapphire_localnet \
 bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, sk);
 ```
 
+> ℹ️ **KDF note (ECDH):** Off‑chain, derive the Deoxys‑II key from the X25519 shared secret using **HMAC‑SHA512/256** with label `"MRAE_Box_Deoxys-II-256-128"` before creating `new AEAD(key)`. This mirrors Sapphire’s on‑chain derivation.
+
 ### Bind ciphertexts with AAD (recommended)
 
 AAD prevents accepting ciphertexts out of context. Bind to `msg.sender`:
 
 ```sol title="Solidity: include AAD"
-bytes32 nonce = bytes32(Sapphire.randomBytes(32, ""));
+bytes32 nonce = bytes32(Sapphire.randomBytes(32, bytes("")));
 bytes memory aad = abi.encodePacked(msg.sender); // 20 bytes
-bytes memory cipher = Sapphire.encrypt(key, nonce, abi.encode(message), aad);
+bytes memory cipher = Sapphire.encrypt(key, nonce, bytes(message), aad);
 emit Encrypted(nonce, cipher);
 ```
 
@@ -148,6 +156,16 @@ const plain = aead.decrypt(
 );
 ```
 
+#### AAD caveat: relayers & forwarders
+
+`msg.sender` (on‑chain) equals `tx.from` (off‑chain) **only** for direct EOA → contract calls. If a relayer, forwarder (e.g., EIP‑2771), or another contract calls your contract, `msg.sender ≠ tx.from`, and off‑chain decryption with `ethers.getBytes(tx.from)` will fail **by design**.
+
+**Alternatives:**
+
+* **Bind to context (relayer‑friendly):** use `abi.encodePacked(block.chainid, address(this))` as AAD. Off‑chain, replicate the same packed bytes exactly. This prevents cross‑chain/contract replay without depending on the caller’s identity.
+* **Expose & bind to sender explicitly:** add an `address sender` param in the event (public) and include that **same address** in AAD. Easier to reconstruct off‑chain, but publicly reveals the sender.
+* **(Advanced)** If you truly need caller identity across relayers, consider your forwarder’s semantics (e.g., EIP‑2771) and bind AAD to the **original signer** as recovered by the forwarder.
+
 ---
 
 ## ROFL integration (pattern)
@@ -157,9 +175,9 @@ A ROFL container can subscribe to your contract’s `Encrypted` events, then dec
 1. **Subscribe** by contract and event signature.
 2. **Derive the key**:
 
-   - Pattern **A**: retrieve the symmetric key out of band (e.g., injected secret corresponding to the submitter).
-   - Pattern **B**: compute `x25519.scalarMult(callerSecret, contractPublic)` using the **caller’s secret** provided to the container.
-3. **Fetch AAD** (if used): for `msg.sender`, read `tx.from` for the event’s `transactionHash`.
+   * Pattern **A**: retrieve the symmetric key out of band (e.g., injected secret corresponding to the submitter).
+   * Pattern **B**: compute `x25519.scalarMult(callerSecret, contractPublic)` using the **caller’s secret** provided to the container.
+3. **Fetch AAD** (if used): for `msg.sender`, read `tx.from` for direct EOA calls **only**; otherwise use your chosen AAD scheme (see caveat above).
 4. **Decrypt** with Deoxys‑II (`Nonce = first 15 bytes of the stored 32‑byte nonce`).
 5. **Act** on the plaintext (no extra storage read necessary).
 
@@ -169,14 +187,14 @@ A ROFL container can subscribe to your contract’s `Encrypted` events, then dec
 
 ## Best practices
 
-- **Never reuse `(key, nonce)`**. Always randomize `nonce`.
-- Prefer **AAD** (e.g., `msg.sender`) to bind context.
-- For ECDH, prefer **ephemeral caller keys** to reduce linkability.
-- **Do not log secrets** (symmetric keys or Curve25519 secrets) in production.
-- **Events are permanent**—emit only what you can keep confidential long‑term.
-- **Testnet is not production**; confidentiality is not guaranteed there.
-
-- **Indexed nonce.** The event uses `bytes32 indexed nonce` for efficient filtering.
+* **Never reuse `(key, nonce)`**. Always randomize `nonce`. (Deoxys‑II is misuse‑resistant, but reusing the *exact same* nonce with the same key is still unsafe.)
+* Prefer **AAD** to bind context; choose an AAD scheme compatible with your calling model (see **AAD caveat**).
+* For ECDH, prefer **ephemeral caller keys** to reduce linkability (or derive per‑message keys from `(ECDH, nonce)` via a KDF).
+* **Do not log secrets** (symmetric keys or Curve25519 secrets) in production.
+* **Events are permanent**—emit only what you can keep confidential long‑term.
+* **Testnet is not production**; confidentiality is not guaranteed there.
+* **Indexed nonce.** The event uses `bytes32 indexed nonce` for efficient filtering.
+* **Pass the right parameter.** `--contract` must be the **contract address** (0x…), not a transaction hash.
 
 ---
 
@@ -195,7 +213,7 @@ npx hardhat deploy-ecdh --network sapphire_testnet
 
 <details>
 <summary>Can I decrypt logs as they arrive?</summary>
-Yes. Use `npx hardhat listen …` (wrapper) or `npx hardhat listen-ecdh …` (ECDH). For historical scans, you can query past logs and decrypt each event similarly.
+Yes. Use `npx hardhat listen …` (wrapper) or `npx hardhat listen-ecdh …` (ECDH). They stay open until you press **Ctrl‑C**.
 </details>
 
 <details>

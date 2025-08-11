@@ -3,6 +3,7 @@ import { ethers } from "hardhat";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 import { randomBytes } from "crypto";
 import { x25519 } from "@noble/curves/ed25519";
+import { deriveSapphireSymmetricKeyFromShared } from "../utils/sapphire-ecdh";
 
 describe("AAD behavior", function () {
   before(async function () {
@@ -82,6 +83,7 @@ describe("AAD behavior", function () {
     // Fetch contract's public key and derive shared key off-chain
     const contractPkHex: string = await contract.contractPublicKey();
     const shared = x25519.scalarMult(callerSk, ethers.getBytes(contractPkHex));
+    const key = deriveSapphireSymmetricKeyFromShared(shared);
 
     // Parse log
     const parsed = receipt!.logs
@@ -92,7 +94,7 @@ describe("AAD behavior", function () {
     const nonce: string = parsed.args[0];
     const ciphertext: string = parsed.args[1];
 
-    const aead = new AEAD(shared);
+    const aead = new AEAD(key);
 
     // Wrong/no AAD should throw
     expect(() =>

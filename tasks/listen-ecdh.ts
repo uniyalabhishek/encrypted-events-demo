@@ -1,6 +1,7 @@
 import { task } from "hardhat/config";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 import { x25519 } from "@noble/curves/ed25519";
+import { deriveSapphireSymmetricKeyFromShared } from "../utils/sapphire-ecdh";
 
 /**
  * `npx hardhat listen-ecdh --network <net> --contract <ADDR> --secret <HEX32>`
@@ -29,15 +30,19 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
     }
 
     const shared = x25519.scalarMult(callerSk, contractPk); // Uint8Array(32)
-    const aead   = new AEAD(shared);
+    const key = deriveSapphireSymmetricKeyFromShared(shared);
+    const aead   = new AEAD(key);
 
     console.log("🔊  Listening (ECDH) for Encrypted events …  (Ctrl‑C to quit)");
+    if (aad) {
+      console.warn("AAD binding uses abi.encodePacked(msg.sender). This assumes a direct EOA→contract call.");
+      console.warn("With relayers/forwarders, msg.sender ≠ tx.from and decryption will fail. Consider context-bound AAD (e.g., abi.encodePacked(block.chainid, address(this))) or emit the sender address and include it in AAD.");
+    }
 
-    instance.on(filter, async (...args: any[]) => {
+    instance.on(filter, async (ev: any) => {
       try {
-        const ev = args[args.length - 1];
-        const nonce      = args[0] as string;
-        const ciphertext = args[1] as string;
+        const nonce: string = ev.args[0] as string;
+        const ciphertext: string = ev.args[1] as string;
 
         let aadBytes = new Uint8Array();
         if (aad) {
@@ -62,4 +67,11 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
         console.error("⚠️  Failed to decrypt event:", e);
       }
     });
-});
+
+    // Keep the task alive until interrupted
+    process.on("SIGINT", () => {
+      try { instance.removeAllListeners(); } catch {}
+      process.exit(0);
+    });
+    await new Promise<void>(() => { /* forever */ });
+  });
