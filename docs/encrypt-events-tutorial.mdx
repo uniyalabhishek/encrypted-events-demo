@@ -123,6 +123,8 @@ npx hardhat enc --network sapphire-localnet \
   </TabItem>
 </Tabs>
 
+> **Tip:** With TypeChain/ethers v6 **typed filters**, the listener receives the **non‑indexed args** plus the event object — here `(nonce, ciphertext, event)`. Read the indexed `sender` from `event.args.sender` when using `--aadmode sender`.
+
 ---
 
 ## How it works (at a glance)
