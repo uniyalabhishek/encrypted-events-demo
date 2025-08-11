@@ -23,7 +23,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
   .addParam("action", "emit | listen | decrypt")
   .addParam("mode", "key | ecdh")
   .addOptionalParam("contract", "Contract address")
-  .addOptionalParam("message", "Plaintext to encrypt (emit)", "Hello Sapphire 👋")
+  .addOptionalParam("message", "Plaintext to encrypt (emit)", "Hello Sapphire")
   .addOptionalParam("key", "Hex-encoded 32-byte symmetric key (key mode)")
   .addOptionalParam("secret", "Hex-encoded 32-byte caller Curve25519 secret (ecdh mode)")
   .addOptionalParam("tx", "Transaction hash containing the Encrypted event (decrypt)")
@@ -35,7 +35,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
 
     // legacy alias: --aad -> --aadmode sender
     if (aad && aadmode === "none") {
-      console.warn("⚠️  --aad is deprecated; use --aadmode sender. Proceeding with aadmode=sender.");
+      console.warn("Warning: --aad is deprecated; use --aadmode sender. Proceeding with aadmode=sender.");
       aadmode = "sender";
     }
     if (!["emit", "listen", "decrypt"].includes(action)) {
@@ -57,7 +57,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
     // Basic validation to catch users passing a tx hash to --contract by mistake
     const needsContract = (action === "emit" || action === "listen" || (action === "decrypt" && mode === "ecdh"));
     if (needsContract && contract && !/^0x[0-9a-fA-F]{40}$/.test(contract)) {
-      console.warn("⚠️  --contract should be a 0x-prefixed 20-byte address (not a tx hash). You provided:", contract);
+      console.warn("Warning: --contract should be a 0x-prefixed 20-byte address (not a tx hash). You provided:", contract);
     }
 
     // Helpers
@@ -136,7 +136,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
       console.log("Encrypted event emitted in tx:", receipt?.hash);
       console.log("Caller Curve25519 public key (hex):", callerPkHex);
       // ⚠️ DEMO ONLY – DO NOT log or print secrets in production systems.
-      console.warn("⚠️  DEMO ONLY: Do NOT log secret keys in production!");
+      console.warn("DEMO ONLY: Do not log secret keys in production!");
       console.log("Caller Curve25519 SECRET key (hex):", ethers.hexlify(callerSecretBytes));
       if (aadmode !== "none") {
         console.log(`AAD mode used: ${aadmode}`);
@@ -147,7 +147,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
         }
       }
       if (hkdf) {
-        console.warn("⚠️  --hkdf has no effect on EMIT; encryption happens on-chain. Only use --hkdf when LISTEN/DECRYPT against a contract that also applies HKDF on-chain.");
+        console.warn("--hkdf has no effect on EMIT; encryption happens on-chain. Only use --hkdf when LISTEN/DECRYPT against a contract that also applies HKDF on-chain.");
       }
       return;
     }
@@ -158,11 +158,11 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
     if (action === "listen") {
       if (mode === "key") {
         if (!key) throw new Error("--key is required in key mode for listen");
-        if (hkdf) console.warn("⚠️  --hkdf is ignored in key mode.");
+        if (hkdf) console.warn("--hkdf is ignored in key mode.");
         const instance = await ethers.getContractAt("EncryptedEvents", contract as string);
         const filter = instance.filters.Encrypted(undefined);
 
-        console.log("🔊  Listening for Encrypted events …  (Ctrl-C to quit)");
+        console.log("Listening for Encrypted events (Ctrl-C to quit)");
         if (aadmode !== "none") {
           console.warn(`AAD mode: ${aadmode}.`);
         }
@@ -177,9 +177,9 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
               ethers.getBytes(ciphertext),
               aadBytes
             );
-            console.log("🟢  Decrypted:", new TextDecoder().decode(plaintext));
+            console.log("Decrypted:", new TextDecoder().decode(plaintext));
           } catch (e) {
-            console.error("⚠️  Failed to decrypt event:", e);
+            console.error("Failed to decrypt event:", e);
           }
         });
 
@@ -196,7 +196,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
       const instance = await ethers.getContractAt("EncryptedEventsECDH", contract as string);
       const filter = instance.filters.Encrypted(undefined);
 
-      console.log("🔊  Listening (ECDH) for Encrypted events …  (Ctrl-C to quit)");
+      console.log("Listening (ECDH) for Encrypted events (Ctrl-C to quit)");
       if (aadmode !== "none") {
         console.warn(`AAD mode: ${aadmode}.`);
       }
@@ -229,9 +229,9 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
             ethers.getBytes(ciphertext),
             aadBytes
           );
-          console.log("🟢  Decrypted (ECDH):", new TextDecoder().decode(plaintext));
+          console.log("Decrypted (ECDH):", new TextDecoder().decode(plaintext));
         } catch (e) {
-          console.error("⚠️  Failed to decrypt event:", e);
+          console.error("Failed to decrypt event:", e);
         }
       });
 
@@ -272,7 +272,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
       throw new Error("Encrypted event not found in tx logs");
     }
     if (!target && matches.length > 1) {
-      console.warn("⚠️  Multiple Encrypted events found in this tx across different contracts. Please re-run with --contract <ADDR> to disambiguate.");
+      console.warn("Warning: Multiple Encrypted events found in this tx across different contracts. Please re-run with --contract <ADDR> to disambiguate.");
       throw new Error("Ambiguous: multiple Encrypted events");
     }
 
@@ -283,7 +283,7 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
 
     if (mode === "key") {
       if (!key) throw new Error("--key is required in key mode for decrypt");
-      if (hkdf) console.warn("⚠️  --hkdf is ignored in key mode.");
+      if (hkdf) console.warn("--hkdf is ignored in key mode.");
       const aead = new AEAD(ethers.getBytes(key));
       const aadBytes = await getAadBytes(aadmode === "sender" ? sender : undefined, (contract ?? chosen.address) as string);
       const plaintext = aead.decrypt(

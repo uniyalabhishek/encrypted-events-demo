@@ -19,7 +19,7 @@ describe("EncryptedEvents", function () {
 
     const keyBytes = randomBytes(32);
     const keyHex = ethers.hexlify(keyBytes) as `0x${string}`;
-    const message = "Hello Sapphire 👋";
+    const message = "Hello Sapphire";
 
     const tx = await contract.emitEncrypted(
       keyHex,

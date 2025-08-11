@@ -35,7 +35,7 @@ npm run build:types    # runs hardhat compile + typechain
 
 ## 3) Flow A — Key in the (encrypted) tx
 
-> ⚠️ **Only on Sapphire.** Passing a raw key in calldata is safe **only** on Sapphire networks because the Sapphire wrappers **encrypt tx/calls**. Do **not** use this pattern on non‑Sapphire chains.
+> Only on Sapphire. Passing a raw key in calldata is safe only on Sapphire networks because the Sapphire wrappers encrypt tx/calls. Do not use this pattern on non‑Sapphire chains.
 
 ```bash
 # Deploy
@@ -47,7 +47,7 @@ npx hardhat deploy --network sapphire-localnet
 # Tip: provide --key to reuse the same key across emit & listen.
 npx hardhat enc --network sapphire-localnet \
   --action emit --mode key --contract $ADDR \
-  --message "secret 🚀" [--key <HEX32>] [--aadmode sender|context]
+  --message "secret" [--key <HEX32>] [--aadmode sender|context]
 
 # Decrypt a past tx by hash (add --aadmode if you used it when emitting)
 # (In key mode, --contract is optional; pass it to disambiguate if the tx has multiple logs.)
@@ -73,10 +73,10 @@ npx hardhat enc --network sapphire-localnet --action listen --mode key --contrac
 Terminal B – emitter
 
 ```bash
-npx hardhat enc --network sapphire-localnet --action emit --mode key --contract $ADDR --message "secret 🚀" --key $KEY
+npx hardhat enc --network sapphire-localnet --action emit --mode key --contract $ADDR --message "secret" --key $KEY
 ```
 
-**Expected:** Terminal A prints `🟢  Decrypted: secret 🚀`.
+**Expected:** Terminal A prints `Decrypted: secret`.
 
 > Tip: `--contract` is **always** a contract address (0x…), not a tx hash.
 
@@ -92,7 +92,7 @@ npx hardhat deploy-ecdh --network sapphire-localnet
 # Tip: provide --secret to reuse the same caller secret across emit & listen.
 npx hardhat enc --network sapphire-localnet \
   --action emit --mode ecdh --contract $ADDR \
-  --message "secret 🚀" [--secret <HEX32>] [--aadmode sender|context]
+  --message "secret" [--secret <HEX32>] [--aadmode sender|context]
 
 # Live listen & decrypt using the provided/printed caller SECRET
 # (add --aadmode if you used it)

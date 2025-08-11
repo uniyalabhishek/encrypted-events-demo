@@ -24,7 +24,7 @@ describe("EncryptedEventsECDH", function () {
     const callerPkHex = ethers.hexlify(callerPk) as `0x${string}`;
 
     // 2) On‑chain: emit encrypted
-    const message = "Hello Sapphire ECDH 👋";
+    const message = "Hello Sapphire ECDH";
     const tx = await contract.emitEncryptedECDH(
       callerPkHex,
       ethers.hexlify(ethers.toUtf8Bytes(message))
