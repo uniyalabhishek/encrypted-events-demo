@@ -1,7 +1,6 @@
 import { task } from "hardhat/config";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
-import { x25519 } from "@noble/curves/ed25519";
-import { deriveSapphireSymmetricKeyFromShared } from "../utils/sapphire-ecdh";
+import { mraeDeoxysii } from "@oasisprotocol/client-rt";
 
 /**
  * `npx hardhat listen-ecdh --network <net> --contract <ADDR> --secret <HEX32>`
@@ -20,7 +19,7 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
     const instance = await ethers.getContractAt("EncryptedEventsECDH", contract);
     const filter   = instance.filters.Encrypted(undefined); // nonce is indexed; undefined = any
 
-    // Derive the shared symmetric key: scalarMult(callerSecret, contractPublic)
+    // Derive the shared symmetric key from contract's public key and caller's secret.
     const contractPkHex: string = await instance.contractPublicKey();
     const contractPk = ethers.getBytes(contractPkHex);
     const callerSk   = ethers.getBytes(secret);
@@ -29,8 +28,7 @@ task("listen-ecdh", "Subscribes to Encrypted events (ECDH variant) and decrypts 
       throw new Error("Invalid key lengths: both caller secret and contract public must be 32 bytes");
     }
 
-    const shared = x25519.scalarMult(callerSk, contractPk); // Uint8Array(32)
-    const key = deriveSapphireSymmetricKeyFromShared(shared);
+    const key = mraeDeoxysii.deriveSymmetricKey(contractPk, callerSk); // Uint8Array(32)
     const aead   = new AEAD(key);
 
     console.log("🔊  Listening (ECDH) for Encrypted events …  (Ctrl‑C to quit)");

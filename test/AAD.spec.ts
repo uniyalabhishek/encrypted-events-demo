@@ -3,7 +3,7 @@ import { ethers } from "hardhat";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 import { randomBytes } from "crypto";
 import { x25519 } from "@noble/curves/ed25519";
-import { deriveSapphireSymmetricKeyFromShared } from "../utils/sapphire-ecdh";
+import { mraeDeoxysii } from "@oasisprotocol/client-rt";
 
 describe("AAD behavior", function () {
   before(async function () {
@@ -80,10 +80,12 @@ describe("AAD behavior", function () {
     );
     const receipt = await tx.wait();
 
-    // Fetch contract's public key and derive shared key off-chain
+    // Fetch contract's public key and derive symmetric key off-chain via client SDK
     const contractPkHex: string = await contract.contractPublicKey();
-    const shared = x25519.scalarMult(callerSk, ethers.getBytes(contractPkHex));
-    const key = deriveSapphireSymmetricKeyFromShared(shared);
+    const key = mraeDeoxysii.deriveSymmetricKey(
+      ethers.getBytes(contractPkHex),
+      callerSk
+    );
 
     // Parse log
     const parsed = receipt!.logs

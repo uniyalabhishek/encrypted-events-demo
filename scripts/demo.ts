@@ -38,9 +38,15 @@ async function main() {
   /* ------------------------------------------------------------------
    * 3  Decode the log and decrypt it
    * ------------------------------------------------------------------ */
-  const parsed = receipt.logs
-    .map((l) => contract.interface.parseLog(l))
-    .find((l) => l && l.name === "Encrypted");
+  let parsed: any | undefined;
+  for (const l of receipt.logs) {
+    try {
+      const p = contract.interface.parseLog(l);
+      if (p && p.name === "Encrypted") { parsed = p; break; }
+    } catch {
+      // ignore non-matching logs
+    }
+  }
 
   if (!parsed) {
     throw new Error("Encrypted event not found");

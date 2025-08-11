@@ -12,6 +12,7 @@ import "./tasks/listen";
 import "./tasks/deploy-ecdh";
 import "./tasks/emit-ecdh";
 import "./tasks/listen-ecdh";
+import "./tasks/enc";
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
 
@@ -25,12 +26,12 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    sapphire_localnet: {
+    "sapphire-localnet": {
       url: "http://localhost:8545",
       chainId: 0x5afd,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
     },
-    sapphire_testnet: {
+    "sapphire-testnet": {
       url: "https://testnet.sapphire.oasis.io",
       chainId: 0x5aff,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
