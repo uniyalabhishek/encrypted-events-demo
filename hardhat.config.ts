@@ -6,12 +6,7 @@ import { HardhatUserConfig } from "hardhat/config";
 
 // custom tasks
 import "./tasks/deploy";
-import "./tasks/emit";
-import "./tasks/decrypt";
-import "./tasks/listen";
 import "./tasks/deploy-ecdh";
-import "./tasks/emit-ecdh";
-import "./tasks/listen-ecdh";
 import "./tasks/enc";
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";

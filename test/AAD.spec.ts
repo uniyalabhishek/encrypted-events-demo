@@ -26,7 +26,10 @@ describe("AAD behavior", function () {
     const message = "AAD bound message";
 
     // Call AAD variant
-    const tx = await (contract as any).emitEncryptedWithAad(keyHex, message);
+    const tx = await (contract as any).emitEncryptedWithAad(
+      keyHex,
+      ethers.hexlify(ethers.toUtf8Bytes(message))
+    );
     const receipt = await tx.wait();
 
     const parsed = receipt!.logs
@@ -34,8 +37,9 @@ describe("AAD behavior", function () {
       .find((l: any) => l && l.name === "Encrypted");
     if (!parsed) throw new Error("Encrypted event not found");
 
-    const nonce: string = parsed.args[0];
-    const ciphertext: string = parsed.args[1];
+    const sender: string = parsed.args[0];
+    const nonce: string = parsed.args[1];
+    const ciphertext: string = parsed.args[2];
 
     const aead = new AEAD(keyBytes);
 
@@ -48,10 +52,8 @@ describe("AAD behavior", function () {
       )
     ).to.throw();
 
-    // Correct AAD (20-byte address equal to tx.from)
-    const txMeta = await ethers.provider.getTransaction(tx.hash);
-    if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
-    const aadBytes = ethers.getBytes(txMeta.from);
+    // Correct AAD (20-byte address equal to emitted sender)
+    const aadBytes = ethers.getBytes(sender);
 
     const plaintext = aead.decrypt(
       ethers.getBytes(nonce).slice(0, NonceSize),
@@ -76,7 +78,7 @@ describe("AAD behavior", function () {
     // Emit using AAD variant
     const tx = await (contract as any).emitEncryptedECDHWithAad(
       callerPkHex,
-      message
+      ethers.hexlify(ethers.toUtf8Bytes(message)) as `0x${string}`
     );
     const receipt = await tx.wait();
 
@@ -93,8 +95,9 @@ describe("AAD behavior", function () {
       .find((l: any) => l && l.name === "Encrypted");
     if (!parsed) throw new Error("Encrypted event not found");
 
-    const nonce: string = parsed.args[0];
-    const ciphertext: string = parsed.args[1];
+    const sender: string = parsed.args[0];
+    const nonce: string = parsed.args[1];
+    const ciphertext: string = parsed.args[2];
 
     const aead = new AEAD(key);
 
@@ -107,10 +110,8 @@ describe("AAD behavior", function () {
       )
     ).to.throw();
 
-    // Correct AAD (tx.from)
-    const txMeta = await ethers.provider.getTransaction(tx.hash);
-    if (!txMeta || !txMeta.from) throw new Error("Missing tx.from for AAD");
-    const aadBytes = ethers.getBytes(txMeta.from);
+    // Correct AAD (emitted sender)
+    const aadBytes = ethers.getBytes(sender);
 
     const plaintext = aead.decrypt(
       ethers.getBytes(nonce).slice(0, NonceSize),

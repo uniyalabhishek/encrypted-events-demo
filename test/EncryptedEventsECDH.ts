@@ -25,7 +25,10 @@ describe("EncryptedEventsECDH", function () {
 
     // 2) On‑chain: emit encrypted
     const message = "Hello Sapphire ECDH 👋";
-    const tx = await contract.emitEncryptedECDH(callerPkHex, message);
+    const tx = await contract.emitEncryptedECDH(
+      callerPkHex,
+      ethers.hexlify(ethers.toUtf8Bytes(message))
+    );
     const receipt = await tx.wait();
 
     // 3) Fetch contract public key and derive symmetric key off‑chain via SDK helper
@@ -41,8 +44,8 @@ describe("EncryptedEventsECDH", function () {
       .find((l) => l && l.name === "Encrypted");
     if (!parsed) throw new Error("Encrypted event not found");
 
-    const nonce: string = parsed.args[0];
-    const ciphertext: string = parsed.args[1];
+    const nonce: string = parsed.args[1];
+    const ciphertext: string = parsed.args[2];
 
     const aead = new AEAD(key);
     const plaintext = aead.decrypt(

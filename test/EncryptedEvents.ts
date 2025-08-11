@@ -21,7 +21,10 @@ describe("EncryptedEvents", function () {
     const keyHex = ethers.hexlify(keyBytes) as `0x${string}`;
     const message = "Hello Sapphire 👋";
 
-    const tx = await contract.emitEncrypted(keyHex, message);
+    const tx = await contract.emitEncrypted(
+      keyHex,
+      ethers.hexlify(ethers.toUtf8Bytes(message))
+    );
     const receipt = await tx.wait();
 
     const parsed = receipt!.logs
@@ -29,8 +32,9 @@ describe("EncryptedEvents", function () {
       .find((l) => l && l.name === "Encrypted");
     if (!parsed) throw new Error("Encrypted event not found");
 
-    const nonce: string = parsed.args[0];
-    const ciphertext: string = parsed.args[1];
+    // Encrypted(address sender, bytes32 nonce, bytes ciphertext)
+    const nonce: string = parsed.args[1];
+    const ciphertext: string = parsed.args[2];
 
     const aead = new AEAD(keyBytes);
     const plaintext = aead.decrypt(

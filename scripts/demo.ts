@@ -19,7 +19,8 @@ async function main() {
 
   // ethers v6: wait for the deployment tx to be mined
   await contract.waitForDeployment();
-  console.log("Contract deployed at", contract.target);
+  const contractAddr = (await contract.getAddress()).toLowerCase();
+  console.log("Contract deployed at", contractAddr);
 
   /* ------------------------------------------------------------------
    * 2  Prepare key & plaintext, then emit the event
@@ -28,7 +29,10 @@ async function main() {
   const keyHex   = ethers.hexlify(keyBytes);             // → bytes32 for the call
   const plaintext = "Hello Sapphire 👋";
 
-  const tx = await contract.emitEncrypted(keyHex as `0x${string}`, plaintext);
+  const tx = await contract.emitEncrypted(
+    keyHex as `0x${string}`,
+    ethers.hexlify(ethers.toUtf8Bytes(plaintext))
+  );
   const receipt = await tx.wait();
 
   if (!receipt) {
@@ -40,6 +44,7 @@ async function main() {
    * ------------------------------------------------------------------ */
   let parsed: any | undefined;
   for (const l of receipt.logs) {
+    if ((l.address ?? "").toLowerCase() !== contractAddr) continue;
     try {
       const p = contract.interface.parseLog(l);
       if (p && p.name === "Encrypted") { parsed = p; break; }
@@ -49,12 +54,12 @@ async function main() {
   }
 
   if (!parsed) {
-    throw new Error("Encrypted event not found");
+    throw new Error("Encrypted event not found for this contract");
   }
 
-  // Encrypted(bytes32 nonce, bytes ciphertext) → args[0], args[1]
-  const nonce: string = parsed.args[0] as string;
-  const ciphertext: string = parsed.args[1] as string;
+  // Encrypted(address sender, bytes32 nonce, bytes ciphertext)
+  const nonce: string = parsed.args[1] as string;
+  const ciphertext: string = parsed.args[2] as string;
 
   const aead  = new AEAD(keyBytes);
   const plain = aead.decrypt(

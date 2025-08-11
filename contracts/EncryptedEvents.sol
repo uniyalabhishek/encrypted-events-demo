@@ -6,42 +6,34 @@ import {Sapphire} from "@oasisprotocol/sapphire-contracts/contracts/Sapphire.sol
 /**
  * @title EncryptedEvents
  * @notice Minimal example of emitting confidential events on Oasis Sapphire.
+ *
+ * Event includes the sender (indexed) for easier filtering and AAD binding.
  */
 contract EncryptedEvents {
-    event Encrypted(bytes32 indexed nonce, bytes ciphertext);
+    event Encrypted(address indexed sender, bytes32 nonce, bytes ciphertext);
 
     // Number of random bytes used to construct the 32-byte nonce for Deoxys-II
     uint256 private constant NONCE_SIZE_BYTES = 32;
 
     /// @notice Encrypts a message with a caller-provided symmetric key and emits it.
     /// @dev Pass the key over an encrypted transaction (default when using the Sapphire Hardhat plugin).
-    function emitEncrypted(bytes32 key, string calldata message) external {
-        bytes memory empty = bytes("");
-        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, empty));
-        bytes memory cipher = Sapphire.encrypt(
-            key,
-            nonce,
-            bytes(message),
-            empty
-        );
-        emit Encrypted(nonce, cipher);
+    function emitEncrypted(bytes32 key, bytes calldata message) external {
+        // Domain-separated randomness for nonce generation.
+        bytes memory pers = bytes("EncryptedEvents:nonce");
+        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, pers));
+        bytes memory cipher = Sapphire.encrypt(key, nonce, message, bytes(""));
+        emit Encrypted(msg.sender, nonce, cipher);
     }
 
     /// @notice Same as emitEncrypted, but binds encryption to msg.sender via AAD for authenticity.
-    function emitEncryptedWithAad(
-        bytes32 key,
-        string calldata message
-    ) external {
-        bytes memory empty = bytes("");
-        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, empty));
+    function emitEncryptedWithAad(bytes32 key, bytes calldata message) external {
+        // Domain-separated randomness for nonce generation.
+        bytes memory pers = bytes("EncryptedEvents:nonce");
+        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, pers));
+
         // AAD must exactly match off-chain bytes (20-byte address).
         bytes memory aad = abi.encodePacked(msg.sender);
-        bytes memory cipher = Sapphire.encrypt(
-            key,
-            nonce,
-            bytes(message),
-            aad
-        );
-        emit Encrypted(nonce, cipher);
+        bytes memory cipher = Sapphire.encrypt(key, nonce, message, aad);
+        emit Encrypted(msg.sender, nonce, cipher);
     }
 }
