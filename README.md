@@ -129,7 +129,7 @@ npx hardhat deploy-ecdh --network sapphire_testnet
 
 ## Notes & Tips
 
-* **Indexed nonce:** `bytes32 indexed nonce` enables fast topic filters (you can filter by a specific nonce; listeners use `filters.Encrypted(null)` to match all).
+* **Indexed nonce:** `bytes32 indexed nonce` enables fast topic filters (you can filter by a specific nonce; listeners use `filters.Encrypted(undefined)` to match all).
 * **AAD (recommended):** Bind ciphertexts to `msg.sender` by passing AAD (`abi.encodePacked(address)` on‑chain; use `tx.from` off‑chain).
 * **AAD caveat (relayers/forwarders):** `msg.sender == tx.from` only for direct EOA calls. With relayers/forwarders, they differ and decryption fails. Alternatives:
   * **Context‑bound AAD (relayer‑friendly):** `abi.encodePacked(block.chainid, address(this))` (replicate packed bytes off‑chain).
