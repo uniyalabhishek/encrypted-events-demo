@@ -20,6 +20,9 @@ contract EncryptedEventsECDH {
     // Number of random bytes used to construct the 32-byte nonce for Deoxys-II
     uint256 private constant NONCE_SIZE_BYTES = 32;
 
+    // Domain separation tag for nonce generation
+    string private constant NONCE_PERS = "EncryptedEvents:nonce";
+
     // Keep secrets in encrypted contract state on Sapphire.
     // aderyn-ignore-next-line(state-variable-could-be-immutable)
     Sapphire.Curve25519SecretKey private _contractSk;
@@ -36,10 +39,9 @@ contract EncryptedEventsECDH {
         _contractSk = sk;
     }
 
-    /// @notice Returns the contract's Curve25519 public key (32 bytes).
-    function contractPublicKey() external view returns (bytes memory) {
-        // Return as dynamic bytes for easier off-chain handling
-        return abi.encodePacked(Sapphire.Curve25519PublicKey.unwrap(_contractPk));
+    /// @notice Returns the contract's Curve25519 public key (bytes32).
+    function contractPublicKey() external view returns (bytes32) {
+        return Sapphire.Curve25519PublicKey.unwrap(_contractPk);
     }
 
     /// @notice Derives a symmetric key with the caller and emits an encrypted event.
@@ -53,8 +55,7 @@ contract EncryptedEventsECDH {
         bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, _contractSk);
 
         // Encrypt and emit (Deoxys-II uses first 15 bytes of the 32-byte nonce).
-        bytes memory pers = bytes("EncryptedEvents:nonce");
-        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, pers));
+        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, bytes(NONCE_PERS)));
         bytes memory cipher = Sapphire.encrypt(key, nonce, message, bytes(""));
         emit Encrypted(msg.sender, nonce, cipher);
     }
@@ -66,9 +67,22 @@ contract EncryptedEventsECDH {
     ) external {
         bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, _contractSk);
 
-        bytes memory pers = bytes("EncryptedEvents:nonce");
-        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, pers));
+        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, bytes(NONCE_PERS)));
         bytes memory aad = abi.encodePacked(msg.sender);
+        bytes memory cipher = Sapphire.encrypt(key, nonce, message, aad);
+        emit Encrypted(msg.sender, nonce, cipher);
+    }
+
+    /// @notice Same as emitEncryptedECDH, but binds encryption to (chainId, contract) via AAD.
+    function emitEncryptedECDHWithContextAad(
+        Sapphire.Curve25519PublicKey callerPublicKey,
+        bytes calldata message
+    ) external {
+        bytes32 key = Sapphire.deriveSymmetricKey(callerPublicKey, _contractSk);
+
+        bytes32 nonce = bytes32(Sapphire.randomBytes(NONCE_SIZE_BYTES, bytes(NONCE_PERS)));
+        // AAD = solidityPacked(uint256 chainid, address this)
+        bytes memory aad = abi.encodePacked(block.chainid, address(this));
         bytes memory cipher = Sapphire.encrypt(key, nonce, message, aad);
         emit Encrypted(msg.sender, nonce, cipher);
     }

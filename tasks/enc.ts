@@ -2,15 +2,19 @@ import { task } from "hardhat/config";
 import { AEAD, NonceSize } from "@oasisprotocol/deoxysii";
 import { x25519 } from "@noble/curves/ed25519";
 import { mraeDeoxysii } from "@oasisprotocol/client-rt";
+import { hkdfSync } from "crypto";
 
 /**
  * Unified command:
- *   EMIT (key):   npx hardhat enc --network <net> --action emit    --mode key  --contract <ADDR> [--message "..."] [--key <HEX32>] [--aad]
- *   EMIT (ecdh):  npx hardhat enc --network <net> --action emit    --mode ecdh --contract <ADDR> [--message "..."] [--secret <HEX32>] [--aad]
- *   LISTEN (key): npx hardhat enc --network <net> --action listen  --mode key  --contract <ADDR> --key <HEX32> [--aad]
- *   LISTEN (ecdh):npx hardhat enc --network <net> --action listen  --mode ecdh --contract <ADDR> --secret <HEX32> [--aad]
- *   DECRYPT (key):npx hardhat enc --network <net> --action decrypt --mode key  [--contract <ADDR>] --tx <TX_HASH> --key <HEX32> [--aad]
- *   DECRYPT (ecdh):npx hardhat enc --network <net> --action decrypt --mode ecdh --contract <ADDR> --tx <TX_HASH> --secret <HEX32> [--aad]
+ *   EMIT (key):   npx hardhat enc --network <net> --action emit    --mode key  --contract <ADDR> [--message "..."] [--key <HEX32>] [--aadmode none|sender|context]
+ *   EMIT (ecdh):  npx hardhat enc --network <net> --action emit    --mode ecdh --contract <ADDR> [--message "..."] [--secret <HEX32>] [--aadmode none|sender|context]
+ *   LISTEN (key): npx hardhat enc --network <net> --action listen  --mode key  --contract <ADDR> --key <HEX32> [--aadmode none|sender|context]
+ *   LISTEN (ecdh):npx hardhat enc --network <net> --action listen  --mode ecdh --contract <ADDR> --secret <HEX32> [--aadmode none|sender|context] [--hkdf]
+ *   DECRYPT (key):npx hardhat enc --network <net> --action decrypt --mode key  [--contract <ADDR>] --tx <TX_HASH> --key <HEX32> [--aadmode none|sender|context]
+ *   DECRYPT (ecdh):npx hardhat enc --network <net> --action decrypt --mode ecdh --contract <ADDR> --tx <TX_HASH> --secret <HEX32> [--aadmode none|sender|context] [--hkdf]
+ *
+ * Legacy flag compatibility:
+ *   --aad  (alias for --aadmode sender)  [DEPRECATED]
  *
  * Event signature (both contracts):
  *   event Encrypted(address indexed sender, bytes32 nonce, bytes ciphertext);
@@ -23,15 +27,25 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
   .addOptionalParam("key", "Hex-encoded 32-byte symmetric key (key mode)")
   .addOptionalParam("secret", "Hex-encoded 32-byte caller Curve25519 secret (ecdh mode)")
   .addOptionalParam("tx", "Transaction hash containing the Encrypted event (decrypt)")
-  .addFlag("aad", "Bind/decode with abi.encodePacked(msg.sender)")
-  .setAction(async ({ action, mode, contract, message, key, secret, tx, aad }, hre) => {
+  .addOptionalParam("aadmode", "none | sender | context", "none")
+  .addFlag("aad", "DEPRECATED: alias for --aadmode sender")
+  .addFlag("hkdf", "ECDH only: derive per-message key from (ECDH, nonce) off-chain")
+  .setAction(async ({ action, mode, contract, message, key, secret, tx, aadmode, aad, hkdf }, hre) => {
     const { ethers } = hre;
 
+    // legacy alias: --aad -> --aadmode sender
+    if (aad && aadmode === "none") {
+      console.warn("⚠️  --aad is deprecated; use --aadmode sender. Proceeding with aadmode=sender.");
+      aadmode = "sender";
+    }
     if (!["emit", "listen", "decrypt"].includes(action)) {
       throw new Error("action must be 'emit', 'listen', or 'decrypt'");
     }
     if (!["key", "ecdh"].includes(mode)) {
       throw new Error("mode must be 'key' or 'ecdh'");
+    }
+    if (!["none", "sender", "context"].includes(aadmode)) {
+      throw new Error("aadmode must be 'none', 'sender', or 'context'");
     }
     if ((action === "emit" || action === "listen") && !contract) {
       throw new Error("--contract is required for 'emit' and 'listen'");
@@ -39,6 +53,35 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
     if (action === "decrypt" && mode === "ecdh" && !contract) {
       throw new Error("--contract is required for decrypt in ecdh mode");
     }
+
+    // Basic validation to catch users passing a tx hash to --contract by mistake
+    const needsContract = (action === "emit" || action === "listen" || (action === "decrypt" && mode === "ecdh"));
+    if (needsContract && contract && !/^0x[0-9a-fA-F]{40}$/.test(contract)) {
+      console.warn("⚠️  --contract should be a 0x-prefixed 20-byte address (not a tx hash). You provided:", contract);
+    }
+
+    // Helpers
+    const getAadBytes = async (senderFromEvent: string | undefined, contractAddr: string): Promise<Uint8Array> => {
+      if (aadmode === "sender") {
+        if (!senderFromEvent) throw new Error("Internal: sender missing from event for aadmode=sender");
+        return ethers.getBytes(senderFromEvent);
+      }
+      if (aadmode === "context") {
+        const net = await ethers.provider.getNetwork();
+        const packed = ethers.solidityPacked(["uint256", "address"], [net.chainId, contractAddr]);
+        return ethers.getBytes(packed);
+      }
+      return new Uint8Array();
+    };
+
+    const deriveEcdhKey = async (ecdhContractAddr: string, callerSecretHex: string): Promise<Uint8Array> => {
+      const ecdh = await ethers.getContractAt("EncryptedEventsECDH", ecdhContractAddr);
+      const contractPkHex: string = await ecdh.contractPublicKey();
+      return mraeDeoxysii.deriveSymmetricKey(
+        ethers.getBytes(contractPkHex),
+        ethers.getBytes(callerSecretHex)
+      );
+    };
 
     /* ---------------------------------------------------------------
      * EMIT
@@ -48,40 +91,63 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
         const instance = await ethers.getContractAt("EncryptedEvents", contract as string);
         const keyHex = (key as `0x${string}`) ?? (ethers.hexlify(ethers.randomBytes(32)) as `0x${string}`);
         const data = ethers.hexlify(ethers.toUtf8Bytes(message));
-        const txr = aad
-          ? await (instance as any).emitEncryptedWithAad(keyHex, data)
-          : await instance.emitEncrypted(keyHex, data);
+
+        let txr;
+        if (aadmode === "sender") {
+          txr = await (instance as any).emitEncryptedWithAad(keyHex, data);
+        } else if (aadmode === "context") {
+          txr = await (instance as any).emitEncryptedWithContextAad(keyHex, data);
+        } else {
+          txr = await instance.emitEncrypted(keyHex, data);
+        }
+
         const receipt = await txr.wait();
         console.log("Encrypted event emitted in tx:", receipt?.hash);
         console.log("Symmetric key (hex):", keyHex);
-        if (aad) {
-          console.log("AAD used: abi.encodePacked(msg.sender)");
-          console.warn("Note: AAD binds to msg.sender (emitted as the first event arg). Use that same value when decrypting.");
+        if (aadmode !== "none") {
+          console.log(`AAD mode used: ${aadmode}`);
+          if (aadmode === "sender") {
+            console.warn("Note: AAD binds to msg.sender (emitted as the first event arg). Use that same value when decrypting.");
+          } else {
+            console.warn("Note: AAD binds to (chainId, contract). Ensure you compute the same bytes off-chain when decrypting.");
+          }
         }
         return;
       }
 
       // ECDH emit
       const instance = await ethers.getContractAt("EncryptedEventsECDH", contract as string);
-      const callerSecret = secret ? ethers.getBytes(secret) : ethers.randomBytes(32);
-      if (callerSecret.length !== 32) throw new Error("Caller secret must be 32 bytes");
-      const callerPublic = x25519.getPublicKey(callerSecret);
+      const callerSecretBytes = secret ? ethers.getBytes(secret) : ethers.randomBytes(32);
+      if (callerSecretBytes.length !== 32) throw new Error("Caller secret must be 32 bytes");
+      const callerPublic = x25519.getPublicKey(callerSecretBytes);
       const callerPkHex = ethers.hexlify(callerPublic) as `0x${string}`;
       const data = ethers.hexlify(ethers.toUtf8Bytes(message));
 
-      const txr = aad
-        ? await (instance as any).emitEncryptedECDHWithAad(callerPkHex, data)
-        : await instance.emitEncryptedECDH(callerPkHex, data);
+      let txr;
+      if (aadmode === "sender") {
+        txr = await (instance as any).emitEncryptedECDHWithAad(callerPkHex, data);
+      } else if (aadmode === "context") {
+        txr = await (instance as any).emitEncryptedECDHWithContextAad(callerPkHex, data);
+      } else {
+        txr = await instance.emitEncryptedECDH(callerPkHex, data);
+      }
       const receipt = await txr.wait();
 
       console.log("Encrypted event emitted in tx:", receipt?.hash);
       console.log("Caller Curve25519 public key (hex):", callerPkHex);
       // ⚠️ DEMO ONLY – DO NOT log or print secrets in production systems.
       console.warn("⚠️  DEMO ONLY: Do NOT log secret keys in production!");
-      console.log("Caller Curve25519 SECRET key (hex):", ethers.hexlify(callerSecret));
-      if (aad) {
-        console.log("AAD used: abi.encodePacked(msg.sender)");
-        console.warn("Note: AAD binds to msg.sender (and is emitted as the first event arg). Use that value off-chain for decryption.");
+      console.log("Caller Curve25519 SECRET key (hex):", ethers.hexlify(callerSecretBytes));
+      if (aadmode !== "none") {
+        console.log(`AAD mode used: ${aadmode}`);
+        if (aadmode === "sender") {
+          console.warn("Note: AAD binds to msg.sender (and is emitted as the first event arg). Use that value off-chain for decryption.");
+        } else {
+          console.warn("Note: AAD binds to (chainId, contract). Ensure you compute the same bytes off-chain when decrypting.");
+        }
+      }
+      if (hkdf) {
+        console.warn("⚠️  --hkdf has no effect on EMIT; encryption happens on-chain. Only use --hkdf when LISTEN/DECRYPT against a contract that also applies HKDF on-chain.");
       }
       return;
     }
@@ -92,24 +158,20 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
     if (action === "listen") {
       if (mode === "key") {
         if (!key) throw new Error("--key is required in key mode for listen");
+        if (hkdf) console.warn("⚠️  --hkdf is ignored in key mode.");
         const instance = await ethers.getContractAt("EncryptedEvents", contract as string);
-        // Only indexed param is sender; undefined = any sender
         const filter = instance.filters.Encrypted(undefined);
-        const aead = new AEAD(ethers.getBytes(key));
 
-        console.log("🔊  Listening for Encrypted events …  (Ctrl‑C to quit)");
-        if (aad) {
-          console.warn("AAD binding uses abi.encodePacked(msg.sender). Use the 'sender' arg from the event to form AAD.");
+        console.log("🔊  Listening for Encrypted events …  (Ctrl-C to quit)");
+        if (aadmode !== "none") {
+          console.warn(`AAD mode: ${aadmode}.`);
         }
 
-        instance.on(filter, async (ev: any) => {
+        const aead = new AEAD(ethers.getBytes(key)); // same key for all events
+        instance.on(filter, async (nonce: string, ciphertext: string, event: any): Promise<void> => {
           try {
-            const sender: string = ev.args[0] as string;
-            const nonce: string = ev.args[1] as string;
-            const ciphertext: string = ev.args[2] as string;
-
-            const aadBytes = aad ? Uint8Array.from(ethers.getBytes(sender)) : new Uint8Array();
-
+            const senderFromEvent = (event?.args?.sender ?? event?.args?.[0]) as string | undefined;
+            const aadBytes = await getAadBytes(senderFromEvent, contract as string);
             const plaintext = aead.decrypt(
               ethers.getBytes(nonce).slice(0, NonceSize),
               ethers.getBytes(ciphertext),
@@ -134,28 +196,36 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
       const instance = await ethers.getContractAt("EncryptedEventsECDH", contract as string);
       const filter = instance.filters.Encrypted(undefined);
 
-      const contractPkHex: string = await instance.contractPublicKey();
-      const keyBytes = mraeDeoxysii.deriveSymmetricKey(
-        ethers.getBytes(contractPkHex),
-        ethers.getBytes(secret)
-      );
-      const aead = new AEAD(keyBytes);
-
-      console.log("🔊  Listening (ECDH) for Encrypted events …  (Ctrl‑C to quit)");
-      if (aad) {
-        console.warn("AAD binding uses abi.encodePacked(msg.sender). Use the 'sender' arg from the event to form AAD.");
+      console.log("🔊  Listening (ECDH) for Encrypted events …  (Ctrl-C to quit)");
+      if (aadmode !== "none") {
+        console.warn(`AAD mode: ${aadmode}.`);
+      }
+      if (hkdf) {
+        console.warn("Note: --hkdf derives a per-message key off-chain using nonce. Your contract must encrypt with the same HKDF for this to succeed.");
       }
 
-      instance.on(filter, async (ev: any) => {
-        try {
-          const sender: string = ev.args[0] as string;
-          const nonce: string = ev.args[1] as string;
-          const ciphertext: string = ev.args[2] as string;
+      // Base ECDH key is constant for a given (contract, callerSecret)
+      const baseKey = await deriveEcdhKey(contract as string, secret);
 
-          const aadBytes = aad ? Uint8Array.from(ethers.getBytes(sender)) : new Uint8Array();
+      // If not using HKDF, we can reuse a single AEAD instance
+      const aeadStatic = hkdf ? undefined : new AEAD(baseKey);
+
+      instance.on(filter, async (nonce: string, ciphertext: string, event: any): Promise<void> => {
+        try {
+          const senderFromEvent = (event?.args?.sender ?? event?.args?.[0]) as string | undefined;
+          const aadBytes = await getAadBytes(senderFromEvent, contract as string);
+          const n15 = ethers.getBytes(nonce).slice(0, NonceSize);
+
+          let aead: AEAD;
+          if (hkdf) {
+            const sessionKey = hkdfSync("sha256", Buffer.from(baseKey), Buffer.from(n15), Buffer.from("sapphire:events"), 32);
+            aead = new AEAD(new Uint8Array(sessionKey));
+          } else {
+            aead = aeadStatic!;
+          }
 
           const plaintext = aead.decrypt(
-            ethers.getBytes(nonce).slice(0, NonceSize),
+            n15,
             ethers.getBytes(ciphertext),
             aadBytes
           );
@@ -187,27 +257,35 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
 
     const target = typeof contract === "string" && contract ? (contract as string).toLowerCase() : undefined;
 
-    let parsed: any | undefined;
+    // Parse all matching Encrypted logs (optionally filter by contract)
+    const matches: any[] = [];
     for (const l of receipt.logs) {
       try {
         if (target && (l.address ?? "").toLowerCase() !== target) continue;
         const p = iface.parseLog(l);
-        if (p && p.name === "Encrypted") { parsed = p; break; }
+        if (p && p.name === "Encrypted") { matches.push({ parsed: p, address: (l.address ?? "").toLowerCase() }); }
       } catch { /* ignore non-matching logs */ }
     }
-    if (!parsed) {
+
+    if (matches.length === 0) {
       if (target) throw new Error("Encrypted event not found for the provided contract in this transaction");
       throw new Error("Encrypted event not found in tx logs");
     }
+    if (!target && matches.length > 1) {
+      console.warn("⚠️  Multiple Encrypted events found in this tx across different contracts. Please re-run with --contract <ADDR> to disambiguate.");
+      throw new Error("Ambiguous: multiple Encrypted events");
+    }
 
-    const sender: string = parsed.args[0];
-    const nonce: string = parsed.args[1];
-    const ciphertext: string = parsed.args[2];
+    const chosen = target ? matches[0] : matches[0];
+    const sender: string = chosen.parsed.args[0];
+    const nonce: string = chosen.parsed.args[1];
+    const ciphertext: string = chosen.parsed.args[2];
 
     if (mode === "key") {
       if (!key) throw new Error("--key is required in key mode for decrypt");
+      if (hkdf) console.warn("⚠️  --hkdf is ignored in key mode.");
       const aead = new AEAD(ethers.getBytes(key));
-      const aadBytes = aad ? Uint8Array.from(ethers.getBytes(sender)) : new Uint8Array();
+      const aadBytes = await getAadBytes(aadmode === "sender" ? sender : undefined, (contract ?? chosen.address) as string);
       const plaintext = aead.decrypt(
         ethers.getBytes(nonce).slice(0, NonceSize),
         ethers.getBytes(ciphertext),
@@ -219,18 +297,25 @@ task("enc", "Unified emit/listen/decrypt for encrypted events (key|ecdh)")
 
     // ecdh mode
     if (!secret) throw new Error("--secret is required in ecdh mode for decrypt");
-    const ecdh = await ethers.getContractAt("EncryptedEventsECDH", contract as string);
-    const contractPkHex: string = await ecdh.contractPublicKey();
-    const keyBytes = mraeDeoxysii.deriveSymmetricKey(
-      ethers.getBytes(contractPkHex),
-      ethers.getBytes(secret)
-    );
-    const aead = new AEAD(keyBytes);
-    const aadBytes = aad ? Uint8Array.from(ethers.getBytes(sender)) : new Uint8Array();
-    const plaintext = aead.decrypt(
-      ethers.getBytes(nonce).slice(0, NonceSize),
+
+    const targetAddr = (contract ?? chosen.address) as string;
+    const baseKey2 = await deriveEcdhKey(targetAddr, secret);
+
+    const aadBytes2 = await getAadBytes(aadmode === "sender" ? sender : undefined, targetAddr);
+    const n15 = ethers.getBytes(nonce).slice(0, NonceSize);
+
+    let aead2: AEAD;
+    if (hkdf) {
+      const sessionKey = hkdfSync("sha256", Buffer.from(baseKey2), Buffer.from(n15), Buffer.from("sapphire:events"), 32);
+      aead2 = new AEAD(new Uint8Array(sessionKey));
+    } else {
+      aead2 = new AEAD(baseKey2);
+    }
+
+    const plaintext2 = aead2.decrypt(
+      n15,
       ethers.getBytes(ciphertext),
-      aadBytes
+      aadBytes2
     );
-    console.log("Decrypted message (ECDH):", new TextDecoder().decode(plaintext));
+    console.log("Decrypted message (ECDH):", new TextDecoder().decode(plaintext2));
   });
